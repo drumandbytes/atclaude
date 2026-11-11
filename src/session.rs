@@ -5,7 +5,11 @@ use anyhow::Result;
 /// Cascade: explicit name (flag/env) > configured (`.atclauderc` files, global config) > terminal id > none.
 /// `tty` is the per-shell id, passed only when stdin is a terminal so piped runs stay stateless.
 /// "none" anywhere means stateless (the turn is still recorded, just without context).
-pub fn resolve(explicit: Option<&str>, configured: Option<&str>, tty: Option<&str>) -> Option<String> {
+pub fn resolve(
+    explicit: Option<&str>,
+    configured: Option<&str>,
+    tty: Option<&str>,
+) -> Option<String> {
     let name = explicit
         .filter(|s| !s.is_empty())
         .or(configured.filter(|s| !s.is_empty()))
@@ -16,7 +20,13 @@ pub fn resolve(explicit: Option<&str>, configured: Option<&str>, tty: Option<&st
 
 /// Recent turns of the session, verbatim when small, summarized by the helper model when over budget.
 /// Piped payloads are left out; only prompts and responses carry over.
-pub fn context(db: &Database, session: &str, turns: usize, budget: usize, helper_model: &str) -> Result<Option<String>> {
+pub fn context(
+    db: &Database,
+    session: &str,
+    turns: usize,
+    budget: usize,
+    helper_model: &str,
+) -> Result<Option<String>> {
     let turns = db.recent(session, turns)?;
     if turns.is_empty() {
         return Ok(None);
@@ -50,8 +60,14 @@ mod tests {
     fn cascade() {
         assert_eq!(resolve(None, None, Some("x")).as_deref(), Some("tty-x"));
         assert_eq!(resolve(None, None, None), None);
-        assert_eq!(resolve(None, Some("proj"), Some("x")).as_deref(), Some("proj"));
-        assert_eq!(resolve(Some("g"), Some("proj"), Some("x")).as_deref(), Some("g"));
+        assert_eq!(
+            resolve(None, Some("proj"), Some("x")).as_deref(),
+            Some("proj")
+        );
+        assert_eq!(
+            resolve(Some("g"), Some("proj"), Some("x")).as_deref(),
+            Some("g")
+        );
         assert_eq!(resolve(Some("none"), Some("proj"), Some("x")), None);
         assert_eq!(resolve(None, Some("none"), Some("x")), None);
     }

@@ -16,7 +16,11 @@ mod session;
 mod setup;
 
 #[derive(Parser)]
-#[command(name = "atclaude", version, about = "Inline shell companion for Claude Code")]
+#[command(
+    name = "atclaude",
+    version,
+    about = "Inline shell companion for Claude Code"
+)]
 struct Cli {
     /// Prompt; with piped stdin it is the instruction and stdin the data
     prompt: Option<String>,
@@ -187,7 +191,9 @@ fn run() -> Result<()> {
     let cfg = Config::load(&std::env::current_dir()?);
     llm::set_binary(cfg.str("claude_path"));
     match &cli.command {
-        Some(Cmd::Setup { if_stale, detach }) => return setup::run(*if_stale, *detach, &cfg.readonly_commands(), &cfg.files),
+        Some(Cmd::Setup { if_stale, detach }) => {
+            return setup::run(*if_stale, *detach, &cfg.readonly_commands(), &cfg.files)
+        }
         Some(Cmd::Config) => return show_config(&cfg),
         Some(Cmd::Session { action }) => return session_cmd(action, &cfg),
         _ => {}
@@ -195,15 +201,38 @@ fn run() -> Result<()> {
 
     let db = Database::open_default(cfg.bool("headless").unwrap_or(false))?;
     match &cli.command {
-        Some(Cmd::History { filter, action: None }) => return history::list(&db, filter),
-        Some(Cmd::History { action: Some(HistoryCmd::Show { id }), .. }) => return history::show(&db, *id),
-        Some(Cmd::History { action: Some(HistoryCmd::Rm { ids, filter, yes }), .. }) => return history::rm(&db, ids, filter, *yes),
-        Some(Cmd::History { action: Some(HistoryCmd::Compact { filter, yes }), .. }) => return history::compact(&db, &cfg, filter, *yes),
-        Some(Cmd::History { action: Some(HistoryCmd::Clean { instruction, filter, yes }), .. }) => return history::clean(&db, &cfg, instruction, filter, *yes),
+        Some(Cmd::History {
+            filter,
+            action: None,
+        }) => return history::list(&db, filter),
+        Some(Cmd::History {
+            action: Some(HistoryCmd::Show { id }),
+            ..
+        }) => return history::show(&db, *id),
+        Some(Cmd::History {
+            action: Some(HistoryCmd::Rm { ids, filter, yes }),
+            ..
+        }) => return history::rm(&db, ids, filter, *yes),
+        Some(Cmd::History {
+            action: Some(HistoryCmd::Compact { filter, yes }),
+            ..
+        }) => return history::compact(&db, &cfg, filter, *yes),
+        Some(Cmd::History {
+            action:
+                Some(HistoryCmd::Clean {
+                    instruction,
+                    filter,
+                    yes,
+                }),
+            ..
+        }) => return history::clean(&db, &cfg, instruction, filter, *yes),
         _ => {}
     }
     if let Some(q) = &cli.search {
-        let model = cli.model(&cfg).or_else(|| cfg.str("helper_model")).unwrap_or_else(|| "haiku".into());
+        let model = cli
+            .model(&cfg)
+            .or_else(|| cfg.str("helper_model"))
+            .unwrap_or_else(|| "haiku".into());
         return history::search(&db, &cfg, q, &cli.filter, &model);
     }
     ask(&cli, &db, &cfg)
@@ -220,13 +249,19 @@ fn ask(cli: &Cli, db: &Database, cfg: &Config) -> Result<()> {
         bail!("usage: @claude \"prompt\"  |  cmd | @claude \"instruction\"  |  @claude --search \"question\"");
     }
     if (cli.agent || cli.yolo) && !tty {
-        eprintln!(r#"{{"error":"permission_denied","reason":"agent mode needs an interactive terminal","exit_code":2}}"#);
+        eprintln!(
+            r#"{{"error":"permission_denied","reason":"agent mode needs an interactive terminal","exit_code":2}}"#
+        );
         exit(2);
     }
 
     let cwd = std::env::current_dir()?;
     let tty_id = std::env::var("ATCLAUDE_TTY").ok();
-    let session = session::resolve(cli.session.as_deref(), cfg.str("session").as_deref(), tty.then_some(tty_id.as_deref()).flatten());
+    let session = session::resolve(
+        cli.session.as_deref(),
+        cfg.str("session").as_deref(),
+        tty.then_some(tty_id.as_deref()).flatten(),
+    );
 
     let mode = if cli.yolo {
         "yolo"
@@ -239,14 +274,21 @@ fn ask(cli: &Cli, db: &Database, cfg: &Config) -> Result<()> {
     };
     let mut system = match mode {
         "yolo" | "agent" => cfg.str("prompt_agent").unwrap_or_else(|| llm::AGENT.into()),
-        "interactive" => cfg.str("prompt_interactive").unwrap_or_else(|| llm::INTERACTIVE.into()),
+        "interactive" => cfg
+            .str("prompt_interactive")
+            .unwrap_or_else(|| llm::INTERACTIVE.into()),
         _ => cfg.str("prompt_pipe").unwrap_or_else(|| llm::PIPE.into()),
     };
     let helper_model = cfg.str("helper_model").unwrap_or_else(|| "haiku".into());
     if let Some(s) = &session {
-        let (turns, budget) = (cfg.num("context_turns").unwrap_or(8), cfg.num("context_budget").unwrap_or(6000));
+        let (turns, budget) = (
+            cfg.num("context_turns").unwrap_or(8),
+            cfg.num("context_budget").unwrap_or(6000),
+        );
         match session::context(db, s, turns, budget, &helper_model) {
-            Ok(Some(ctx)) => system.push_str(&format!("\n\nEarlier turns in this session, for continuity:\n{ctx}")),
+            Ok(Some(ctx)) => system.push_str(&format!(
+                "\n\nEarlier turns in this session, for continuity:\n{ctx}"
+            )),
             Ok(None) => {}
             Err(e) => eprintln!("[atclaude] no context: {e}"),
         }
@@ -263,17 +305,36 @@ fn ask(cli: &Cli, db: &Database, cfg: &Config) -> Result<()> {
         ro.iter().map(String::as_str).collect()
     };
     let started = Instant::now();
-    let response = llm::complete(model.as_deref(), Some(&system), &args, &combine(&instruction, &payload))?;
+    let response = llm::complete(
+        model.as_deref(),
+        Some(&system),
+        &args,
+        &combine(&instruction, &payload),
+    )?;
     // raw (piped) output: strip a wrapping code fence; a closed pipe (`| head`) is not an error
-    let response = if std::io::stdout().is_terminal() { response } else { strip_fence(&response) };
+    let response = if std::io::stdout().is_terminal() {
+        response
+    } else {
+        strip_fence(&response)
+    };
     let _ = std::io::stdout().write_all(response.as_bytes());
 
-    let record = if cli.record { true } else if cli.no_record { false } else { cfg.bool("record").unwrap_or(true) };
+    let record = if cli.record {
+        true
+    } else if cli.no_record {
+        false
+    } else {
+        cfg.bool("record").unwrap_or(true)
+    };
     if !record {
         return Ok(());
     }
     let (repo, branch) = git_info(&cwd);
-    let prompt = if instruction.is_empty() { "(stdin)" } else { &instruction };
+    let prompt = if instruction.is_empty() {
+        "(stdin)"
+    } else {
+        &instruction
+    };
     let rec = db.record(&NewTurn {
         session: session.as_deref(),
         kind: "turn",
@@ -292,7 +353,10 @@ fn ask(cli: &Cli, db: &Database, cfg: &Config) -> Result<()> {
     if let Err(e) = rec {
         eprintln!("[atclaude] history not saved: {e}");
     }
-    if let Err(e) = db.prune(cfg.num("retention_days").unwrap_or(365), cfg.num("retention_turns").unwrap_or(10_000)) {
+    if let Err(e) = db.prune(
+        cfg.num("retention_days").unwrap_or(365),
+        cfg.num("retention_turns").unwrap_or(10_000),
+    ) {
         eprintln!("[atclaude] retention pruning failed: {e}");
     }
     Ok(())
@@ -311,7 +375,11 @@ fn git_info(cwd: &Path) -> (Option<String>, Option<String>) {
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
             .filter(|s| !s.is_empty())
     };
-    let repo = run(&["rev-parse", "--show-toplevel"]).and_then(|p| Path::new(&p).file_name().map(|n| n.to_string_lossy().into_owned()));
+    let repo = run(&["rev-parse", "--show-toplevel"]).and_then(|p| {
+        Path::new(&p)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+    });
     (repo, run(&["symbolic-ref", "--short", "-q", "HEAD"]))
 }
 
@@ -349,7 +417,9 @@ fn combine(instruction: &str, payload: &str) -> String {
 fn session_cmd(action: &SessionCmd, cfg: &Config) -> Result<()> {
     match action {
         SessionCmd::List => {
-            for (name, n, last) in Database::open_default(cfg.bool("headless").unwrap_or(false))?.sessions()? {
+            for (name, n, last) in
+                Database::open_default(cfg.bool("headless").unwrap_or(false))?.sessions()?
+            {
                 println!("{name}\t{n} turns\tlast {last}");
             }
         }
@@ -357,7 +427,11 @@ fn session_cmd(action: &SessionCmd, cfg: &Config) -> Result<()> {
             let tty = std::io::stdin().is_terminal();
             let tty_id = std::env::var("ATCLAUDE_TTY").ok();
             let explicit = std::env::var("ATCLAUDE_SESSION").ok();
-            let name = session::resolve(explicit.as_deref(), cfg.str("session").as_deref(), tty.then_some(tty_id.as_deref()).flatten());
+            let name = session::resolve(
+                explicit.as_deref(),
+                cfg.str("session").as_deref(),
+                tty.then_some(tty_id.as_deref()).flatten(),
+            );
             println!("{}", name.as_deref().unwrap_or("none (stateless)"));
         }
     }
@@ -366,8 +440,20 @@ fn session_cmd(action: &SessionCmd, cfg: &Config) -> Result<()> {
 
 fn show_config(cfg: &Config) -> Result<()> {
     let files: Vec<_> = cfg.files.iter().map(|p| p.display().to_string()).collect();
-    println!("# files (lowest to highest priority): {}", if files.is_empty() { "none".into() } else { files.join(", ") });
-    println!("# global: {}", config::global_path().map(|p| p.display().to_string()).unwrap_or_default());
+    println!(
+        "# files (lowest to highest priority): {}",
+        if files.is_empty() {
+            "none".into()
+        } else {
+            files.join(", ")
+        }
+    );
+    println!(
+        "# global: {}",
+        config::global_path()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default()
+    );
     println!("# env: ATCLAUDE_<KEY> overrides any file; flags override env");
     for (key, _) in config::KEYS {
         let (value, source) = cfg.describe(key);
@@ -385,7 +471,12 @@ fn init_script(shell: &Shell, alias: Option<&str>) -> Result<String> {
         Shell::Powershell | Shell::Nushell => "ask", // `@name` can't be a command there
     };
     let alias = alias.unwrap_or(default);
-    if alias.is_empty() || alias.starts_with('-') || !alias.chars().all(|c| c.is_ascii_alphanumeric() || "@_.:+-".contains(c)) {
+    if alias.is_empty()
+        || alias.starts_with('-')
+        || !alias
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "@_.:+-".contains(c))
+    {
         bail!("bad alias {alias:?}: use letters, digits and @ _ . : + -");
     }
     Ok(match shell {
@@ -404,12 +495,24 @@ mod tests {
     fn combine_fence_truncate() {
         assert_eq!(truncate("abcdef", 3), "abc\n[truncated 3 chars]");
         assert_eq!(truncate("abc", 0), "abc");
-        for sh in [Shell::Zsh, Shell::Bash, Shell::Fish, Shell::Powershell, Shell::Nushell] {
+        for sh in [
+            Shell::Zsh,
+            Shell::Bash,
+            Shell::Fish,
+            Shell::Powershell,
+            Shell::Nushell,
+        ] {
             let script = init_script(&sh, None).unwrap();
-            assert!(script.contains("ATCLAUDE_TTY") && script.contains("setup --if-stale --detach") && !script.contains("uuidgen"));
+            assert!(
+                script.contains("ATCLAUDE_TTY")
+                    && script.contains("setup --if-stale --detach")
+                    && !script.contains("uuidgen")
+            );
             assert!(init_script(&sh, Some("bad name; rm")).is_err());
         }
-        assert!(init_script(&Shell::Zsh, Some("ask")).unwrap().contains("alias ask=atclaude"));
+        assert!(init_script(&Shell::Zsh, Some("ask"))
+            .unwrap()
+            .contains("alias ask=atclaude"));
         assert_eq!(combine("do x", "data"), "do x\n\ndata");
         assert_eq!(combine("", "data"), "data");
         assert_eq!(strip_fence("```json\n{\"a\":1}\n```\n"), "{\"a\":1}\n");

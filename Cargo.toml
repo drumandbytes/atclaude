@@ -3,6 +3,13 @@ name = "atclaude"
 version = "0.1.0"
 edition = "2021"
 description = "Inline shell companion for Claude Code with encrypted, searchable history"
+license = "MIT"
+repository = "https://github.com/drumandbytes/atclaude"
+homepage = "https://atclaude.drumandbytes.dev"
+readme = "README.md"
+
+[profile.release]
+strip = true
 
 [dependencies]
 anyhow = "1.0.104"

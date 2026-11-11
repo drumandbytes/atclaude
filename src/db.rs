@@ -3,7 +3,10 @@ use rusqlite::{params, Connection, Row};
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 pub struct Turn {
     pub id: i64,
@@ -52,7 +55,8 @@ pub struct Database {
     conn: Connection,
 }
 
-const COLS: &str = "id, created_at, session, kind, cwd, repo, branch, mode, model, prompt, payload, response";
+const COLS: &str =
+    "id, created_at, session, kind, cwd, repo, branch, mode, model, prompt, payload, response";
 
 fn turn(r: &Row) -> rusqlite::Result<Turn> {
     Ok(Turn {
@@ -78,7 +82,7 @@ impl Database {
         Self::open(&path, &key)
     }
 
-    // ponytail: schema v1 with no migrations (no database existed before it); add
+    // NOTE: schema v1 with no migrations (no database existed before it); add
     // `PRAGMA user_version` migrations with the first release.
     pub fn open(path: &Path, key: &str) -> Result<Self> {
         let conn = Connection::open(path)?;
@@ -89,8 +93,10 @@ impl Database {
             format!("PRAGMA key = '{}';", key.replace('\'', "''"))
         };
         conn.execute_batch(&pragma)?;
-        conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get::<_, i64>(0))
-            .context("cannot decrypt history db (wrong key?)")?;
+        conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| {
+            r.get::<_, i64>(0)
+        })
+        .context("cannot decrypt history db (wrong key?)")?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS turns (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -124,7 +130,9 @@ impl Database {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM turns WHERE session = ?1 ORDER BY created_at DESC, id DESC LIMIT ?2"
         ))?;
-        let mut v = stmt.query_map(params![session, n as i64], turn)?.collect::<Result<Vec<_>, _>>()?;
+        let mut v = stmt
+            .query_map(params![session, n as i64], turn)?
+            .collect::<Result<Vec<_>, _>>()?;
         v.reverse();
         Ok(v)
     }
@@ -139,12 +147,17 @@ impl Database {
                AND (?4 IS NULL OR repo = ?4)
              ORDER BY created_at DESC, id DESC LIMIT ?5"
         ))?;
-        let rows = stmt.query_map(params![f.since, f.older, f.session, f.repo, limit as i64], turn)?;
+        let rows = stmt.query_map(
+            params![f.since, f.older, f.session, f.repo, limit as i64],
+            turn,
+        )?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
     pub fn get(&self, id: i64) -> Result<Option<Turn>> {
-        let mut stmt = self.conn.prepare(&format!("SELECT {COLS} FROM turns WHERE id = ?1"))?;
+        let mut stmt = self
+            .conn
+            .prepare(&format!("SELECT {COLS} FROM turns WHERE id = ?1"))?;
         let mut rows = stmt.query_map(params![id], turn)?;
         let t = rows.next().transpose()?;
         Ok(t)
@@ -160,7 +173,9 @@ impl Database {
     }
 
     pub fn now(&self) -> Result<String> {
-        Ok(self.conn.query_row("SELECT datetime('now','localtime')", [], |r| r.get(0))?)
+        Ok(self
+            .conn
+            .query_row("SELECT datetime('now','localtime')", [], |r| r.get(0))?)
     }
 
     pub fn delete_ids(&self, ids: &[i64]) -> Result<usize> {
@@ -219,7 +234,8 @@ fn delete(conn: &Connection, ids: &[i64]) -> Result<usize> {
 
 /// The global history database: one per user, shared by every directory.
 pub fn global_dir() -> Result<PathBuf> {
-    let dirs = directories::ProjectDirs::from("", "", "atclaude").ok_or_else(|| anyhow!("cannot determine data directory"))?;
+    let dirs = directories::ProjectDirs::from("", "", "atclaude")
+        .ok_or_else(|| anyhow!("cannot determine data directory"))?;
     fs::create_dir_all(dirs.data_dir())?;
     Ok(dirs.data_dir().to_path_buf())
 }
@@ -251,7 +267,10 @@ fn key(fresh_db: bool, headless: bool) -> Result<String> {
         return Ok(k);
     }
     if !fresh_db {
-        bail!("history db exists but its key is missing from the {}", if headless { "key file" } else { "keychain" });
+        bail!(
+            "history db exists but its key is missing from the {}",
+            if headless { "key file" } else { "keychain" }
+        );
     }
     let mut buf = [0u8; 32];
     getrandom::fill(&mut buf).map_err(|e| anyhow!("no system randomness: {e}"))?;
@@ -264,7 +283,9 @@ fn key(fresh_db: bool, headless: bool) -> Result<String> {
 }
 
 fn key_path() -> Result<PathBuf> {
-    Ok(crate::config::global_path().ok_or_else(|| anyhow!("cannot determine config directory"))?.with_file_name("db.key"))
+    Ok(crate::config::global_path()
+        .ok_or_else(|| anyhow!("cannot determine config directory"))?
+        .with_file_name("db.key"))
 }
 
 /// Refuses a key file other users can read, like ssh does for private keys.
@@ -276,7 +297,11 @@ fn file_get(path: &Path) -> Result<Option<String>> {
     };
     #[cfg(unix)]
     if meta.permissions().mode() & 0o077 != 0 {
-        bail!("{} is readable by others; run: chmod 600 {}", path.display(), path.display());
+        bail!(
+            "{} is readable by others; run: chmod 600 {}",
+            path.display(),
+            path.display()
+        );
     }
     Ok(Some(fs::read_to_string(path)?.trim().to_string()).filter(|k| !k.is_empty()))
 }
@@ -298,7 +323,21 @@ mod tests {
     use super::*;
 
     fn new<'a>(session: Option<&'a str>, prompt: &'a str) -> NewTurn<'a> {
-        NewTurn { session, kind: "turn", cwd: "/", repo: Some("r"), branch: None, mode: "pipe", tty: None, model: "m", prompt, payload: "", response: "r", duration_ms: 1, at: None }
+        NewTurn {
+            session,
+            kind: "turn",
+            cwd: "/",
+            repo: Some("r"),
+            branch: None,
+            mode: "pipe",
+            tty: None,
+            model: "m",
+            prompt,
+            payload: "",
+            response: "r",
+            duration_ms: 1,
+            at: None,
+        }
     }
 
     #[test]
@@ -310,8 +349,14 @@ mod tests {
         db.record(&new(Some("s"), "p")).unwrap();
         assert_eq!(db.recent("s", 5).unwrap().len(), 1);
         drop(db);
-        assert!(Database::open(&path, &"cd".repeat(32)).is_err(), "wrong key must fail");
-        assert!(!String::from_utf8_lossy(&fs::read(&path).unwrap()).contains("CREATE TABLE"), "file must not be plaintext");
+        assert!(
+            Database::open(&path, &"cd".repeat(32)).is_err(),
+            "wrong key must fail"
+        );
+        assert!(
+            !String::from_utf8_lossy(&fs::read(&path).unwrap()).contains("CREATE TABLE"),
+            "file must not be plaintext"
+        );
         fs::remove_file(&path).unwrap();
     }
 
@@ -323,9 +368,15 @@ mod tests {
         assert_eq!(file_get(&p).unwrap(), None);
         file_set(&p, "k1").unwrap();
         assert_eq!(file_get(&p).unwrap().as_deref(), Some("k1"));
-        assert!(file_set(&p, "k2").is_err(), "never overwrite an existing key");
+        assert!(
+            file_set(&p, "k2").is_err(),
+            "never overwrite an existing key"
+        );
         fs::set_permissions(&p, fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(file_get(&p).is_err(), "group/other-readable key must be refused");
+        assert!(
+            file_get(&p).is_err(),
+            "group/other-readable key must be refused"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -335,15 +386,33 @@ mod tests {
         let _ = fs::remove_file(&path);
         let db = Database::open(&path, &"ab".repeat(32)).unwrap();
         for i in 0..5 {
-            db.record(&new(Some(if i < 3 { "a" } else { "b" }), &format!("p{i}"))).unwrap();
+            db.record(&new(Some(if i < 3 { "a" } else { "b" }), &format!("p{i}")))
+                .unwrap();
         }
-        let f = Filter { session: Some("a".into()), ..Default::default() };
+        let f = Filter {
+            session: Some("a".into()),
+            ..Default::default()
+        };
         assert_eq!(db.query(&f, 100).unwrap().len(), 3);
-        assert_eq!(db.query(&Filter { repo: Some("nope".into()), ..Default::default() }, 100).unwrap().len(), 0);
+        assert_eq!(
+            db.query(
+                &Filter {
+                    repo: Some("nope".into()),
+                    ..Default::default()
+                },
+                100
+            )
+            .unwrap()
+            .len(),
+            0
+        );
         // retention by count keeps the newest 2
         assert_eq!(db.prune(0, 2).unwrap(), 3);
         let left = db.query(&Filter::default(), 100).unwrap();
-        assert_eq!(left.iter().map(|t| t.prompt.as_str()).collect::<Vec<_>>(), ["p4", "p3"]);
+        assert_eq!(
+            left.iter().map(|t| t.prompt.as_str()).collect::<Vec<_>>(),
+            ["p4", "p3"]
+        );
         // replace swaps turns for a summary that retention leaves alone
         let ids: Vec<i64> = left.iter().map(|t| t.id).collect();
         let mut sum = new(Some("b"), "(summary)");

@@ -1,0 +1,147 @@
+name: Release
+
+on:
+  # Tagged by release-please, or by hand: git tag v0.1.0 && git push origin v0.1.0
+  push:
+    tags:
+      - "v*"
+  # Smoke-test an existing release without publishing anything.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to smoke-test, e.g. v0.1.0
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  # One native build per target; each uploads its tarball to the release that
+  # release-please already created. Native runners, not cross-compilation: the
+  # database's vendored OpenSSL is C code.
+  build:
+    name: Build ${{ matrix.name }}
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04 runners, so the Linux binaries need glibc 2.35 rather than 2.39.
+          - { os: ubuntu-22.04, name: linux_amd64 }
+          - { os: ubuntu-22.04-arm, name: linux_arm64 }
+          - { os: macos-latest, name: darwin_arm64 }
+          - { os: macos-15-intel, name: darwin_amd64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # No caches: another ref's cache could end up in the published binaries.
+      - run: cargo build --release --locked
+
+      - name: Package and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          mkdir stage
+          cp target/release/atclaude LICENSE README.md stage/
+          tar -czf "atclaude_${NAME}.tar.gz" -C stage atclaude LICENSE README.md
+          gh release upload "$TAG" "atclaude_${NAME}.tar.gz" --clobber
+
+  # Checksums for the installer, then the Homebrew formula in the tap.
+  publish:
+    name: Checksums and Homebrew formula
+    needs: build
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # dnb-robot, scoped to this repo and homebrew-tap; GITHUB_TOKEN can't write to another repo.
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app_token
+        with:
+          client-id: ${{ secrets.DNB_ROBOT_CLIENT_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+          permission-contents: write
+          owner: drumandbytes
+          repositories: atclaude,homebrew-tap
+
+      - name: Checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --pattern 'atclaude_*.tar.gz'
+          sha256sum atclaude_*.tar.gz > checksums.txt
+          cat checksums.txt
+          gh release upload "$TAG" checksums.txt --clobber
+
+      - name: Homebrew formula
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          sha() { awk -v f="atclaude_$1.tar.gz" '$2 == f { print $1 }' checksums.txt; }
+          sed -e "s|@TAG@|${TAG}|g" \
+              -e "s|@VERSION@|${TAG#v}|g" \
+              -e "s|@SHA_DARWIN_ARM64@|$(sha darwin_arm64)|" \
+              -e "s|@SHA_DARWIN_AMD64@|$(sha darwin_amd64)|" \
+              -e "s|@SHA_LINUX_ARM64@|$(sha linux_arm64)|" \
+              -e "s|@SHA_LINUX_AMD64@|$(sha linux_amd64)|" \
+              packaging/atclaude.rb.in > atclaude.rb
+          if grep -q '@' atclaude.rb; then echo "unfilled placeholder in formula" >&2; exit 1; fi
+          args=()
+          existing=$(gh api repos/drumandbytes/homebrew-tap/contents/Formula/atclaude.rb -q .sha 2>/dev/null || true)
+          if [ -n "$existing" ]; then args+=(-f "sha=$existing"); fi
+          gh api -X PUT repos/drumandbytes/homebrew-tap/contents/Formula/atclaude.rb \
+            -f "message=atclaude ${TAG#v}" \
+            -f "content=$(base64 < atclaude.rb | tr -d '\n')" \
+            "${args[@]}"
+
+  # The release is already published by now, so a failure here is an alarm, not
+  # a gate. Install it the way a user would (the public script, checksum
+  # verification included) and run it on the OS and architecture it was built for.
+  smoke:
+    name: Smoke test ${{ matrix.os }}
+    needs: publish
+    # A manual run skips build and publish; a failed publish has nothing to test.
+    if: ${{ !cancelled() && needs.publish.result != 'failure' }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-22.04-arm, macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      # The script comes from the tagged commit, like the binaries do.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install and run
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          export ATCLAUDE_VERSION="$TAG" ATCLAUDE_INSTALL_DIR="$RUNNER_TEMP/bin"
+          sh site/install.sh
+          out=$("$ATCLAUDE_INSTALL_DIR/atclaude" --version)
+          echo "$out"
+          [ "$out" = "atclaude ${TAG#v}" ]
+          "$ATCLAUDE_INSTALL_DIR/atclaude" init bash | grep -q ATCLAUDE_TTY

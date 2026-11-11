@@ -1,130 +1,81 @@
-# `atclaude` (`@claude`)
+# atclaude
 
-Inline shell companion for Claude Code. Quick questions and pipelines from the prompt, with session context and an encrypted, searchable history of everything you asked.
+Ask [Claude Code](https://docs.claude.com/en/docs/claude-code) questions from your shell prompt, use it as a step in a pipeline, and keep an encrypted, searchable history of everything you asked.
 
-Needs the `claude` CLI (Claude Code) on PATH. Uses your Claude login, no API key.
-
-## Setup
+[Website](https://atclaude.drumandbytes.dev/?ref=atclaude-readme) · [Install](docs/install.md) · [Usage](docs/usage.md) · [Configuration](docs/configuration.md)
 
 ```bash
-cargo build --release
-cp target/release/atclaude /usr/local/bin/atclaude   # or anywhere on PATH
-```
+@claude "where is auth handled in this repo?"
 
-Then add the shell integration to your shell's startup file. It sets a per-terminal session id, defines the command and refreshes the Bash-hook cache in the background when it is stale:
-
-| Shell | Startup line | Command |
-| :--- | :--- | :--- |
-| zsh (`~/.zshrc`), bash (`~/.bashrc`) | `eval "$(atclaude init zsh)"` | `@claude` |
-| fish (`config.fish`) | `atclaude init fish \| source` | `@claude` |
-| PowerShell (`$PROFILE`) | `atclaude init powershell \| Out-String \| Invoke-Expression` | `ask` |
-| Nushell | in `env.nu`: `atclaude init nushell \| save -f ~/.cache/atclaude.nu`; in `config.nu`: `source ~/.cache/atclaude.nu` | `ask` |
-
-`atclaude init <shell> --alias NAME` picks another command name. `@name` isn't a valid command in PowerShell and Nushell, hence `ask` there. The init output can be cached (the terminal id is generated when the shell starts, not baked in). Run `atclaude setup` once yourself if you use Bash hooks such as `rtk`.
-
-Platforms: macOS and Linux are tested (zsh, bash, fish, PowerShell and Nushell run on Linux; see the matrix in `ARCHITECTURE.md`). Windows is theoretical: the code paths exist but have never been built or run (no test machine). This is a beta-stage tool; expect rough edges. Building needs a C toolchain and Perl for the vendored OpenSSL behind the encrypted database.
-
-## Usage
-
-```bash
-@claude "where is auth handled?"
-cat error.log | @claude "extract 500 status codes" | jq .
-
-@claude -f "quick question"          # haiku
-@claude -d "hard question"           # opus
-@claude -m sonnet "..."              # any model/alias
-@claude -a "add a --verbose flag"    # may edit files; terminal only
-@claude -y "bump deps and commit"    # yolo: any edit or shell command, no checks; terminal only
-
-@claude --search "what was the issue with logs in the recent deployment?" --since 2w
-@claude history                      # fzf over all past turns
-```
-
-## In pipelines
-
-stdin is data, the argument is the instruction. Whenever stdin or stdout is not a terminal you get raw output: no markdown, code fence stripped, diagnostics on stderr only, exit code 1 on failure.
-
-```bash
 journalctl -u app | @claude "output a JSON array of distinct error messages" | jq -r '.[]'
-git diff | @claude "write a one-line commit message" | pbcopy
+
+@claude --search "what was the issue with the deployment logs last week?" --since 2w
 ```
 
-It reads all of stdin before answering and prints once at the end (no streaming), at about 2s per stage. Name the output format in the instruction when another tool will parse it. Every stage is recorded in history (piped input included).
+- **Inline.** One command, no TUI. Answers print and the prompt returns.
+- **Pipeline-friendly.** stdin is data, the argument is the instruction. When input or output is piped you get raw text: no markdown, no code fences, errors on stderr, a real exit code.
+- **Safe by default.** Read-only unless you pass `-a` (edits) or `-y` (everything).
+- **Sessions.** Context carries over per terminal, per directory (a `.atclauderc` file), or under a name you choose.
+- **History you own.** Every turn is stored in an encrypted local database with its repo, branch, session and mode. Search it in plain language, browse it with fzf, delete or compact it.
+- **Configurable.** Every setting works as a flag, an environment variable, a project file or a global file.
 
-## Sessions
+atclaude runs on top of your existing Claude Code login. It needs no API key.
 
-Context carries over inside a session; first match wins:
-
-1. `--session NAME` / `ATCLAUDE_SESSION=NAME`: across directories and terminals
-2. `session = "name"` in `.atclauderc` in the directory or a parent (or the global config)
-3. the current terminal (set up by `init`)
-4. otherwise none: no context, but the turn is still recorded in history
-
-`--session none` forces stateless. Piped input is stateless unless a session is explicit.
-
-## Configuration
-
-Every setting can come from a flag, an env var (`ATCLAUDE_<KEY>`), `.atclauderc` files (TOML; this directory and every parent, nearest wins) or a global `~/.config/atclaude/config.toml` (`ATCLAUDE_CONFIG` points elsewhere). Priority: flag, env, `.atclauderc`, global, default. `atclaude config` shows each effective value and where it came from. Unknown keys and wrong types are reported on stderr and ignored.
-
-```toml
-# ~/.config/atclaude/config.toml, or .atclauderc in a project
-headless = false               # true: keep the database key in a 0600 file in the config dir instead of the OS keychain (servers, containers)
-claude_path = "claude"         # the Claude Code binary (custom location, or a .cmd shim on Windows)
-record = true                  # false: don't save turns to history (flags: --record / --no-record)
-session = "myproject"          # "none" = no context
-model = "sonnet"               # default model (flags -f -d -m win)
-helper_model = "haiku"         # summaries and --search
-context_turns = 8              # turns injected from the session
-context_budget = 6000          # chars; above this, the helper model summarizes
-search_budget = 300000         # chars of history index sent for --search
-readonly_commands = ["git status", "git diff", "git log", "git show", "ls", "pwd"]   # what plain @claude may run
-readonly_bash = ["Bash(foo git status:*)"]   # extra raw rules (env lists are comma-separated)
-fast_model = "haiku"           # what -f means
-deep_model = "opus"            # what -d means
-search_prompt_chars = 200      # per-turn excerpt lengths in the history index used by --search / clean
-search_response_chars = 400
-retention_days = 365           # turns older than this are deleted on write; 0 = keep forever
-retention_turns = 10000        # keep at most this many turns; 0 = unlimited
-payload_max_chars = 20000      # piped input stored per turn is cut to this; 0 = unlimited
-prompt_pipe = "..."            # override the built-in system prompts
-prompt_interactive = "..."
-prompt_agent = "..."
-```
-
-A `.atclauderc` containing just a name (`myproject`) still works as the session name.
-
-## History
-
-Stored encrypted (SQLCipher). The key lives in the OS credential store (macOS Keychain, Linux Secret Service via `secret-tool` (GNOME Keyring tested end to end; KWallet and KeePassXC provide the same API but need their GUI set up first, see `ARCHITECTURE.md`), Windows Credential Manager), or with `headless = true` in a `db.key` file (mode 600) next to the config file. The database is at `~/Library/Application Support/atclaude/history.db` on macOS, `~/.local/share/atclaude/history.db` on Linux. There is one history per user, shared by every directory; the location is not configurable. The key never comes from an environment variable.
-
-Everything is recorded by default, piped input included, so pipe secrets only with `--no-record`, `ATCLAUDE_RECORD=0` or `record = false` (for example in a project's `.atclauderc`). Turns that aren't recorded are also missing from later session context.
-
-## Searching and managing history
-
-Each turn stores: time, session, repo and branch (when in a git repo), directory, mode (`interactive`, `pipe`, `agent`, `yolo`), model, prompt, piped input and response. Filters work the same everywhere (`--search`, `history`, `rm`, `compact`, `clean`):
+## Install
 
 ```bash
-@claude --search "what broke the deploy?" --in backend --repo api --since 2w
-atclaude history --repo api --since 1w        # fzf browser; Enter prints the turn
-atclaude history show 42
+brew install drumandbytes/tap/atclaude          # macOS, Linux with Homebrew
+# or
+curl -fsSL https://atclaude.drumandbytes.dev/install.sh | sh
 ```
 
-**Limits.** Defaults are meant to keep search and context injection small enough for a helper model: 365 days / 10000 turns retained, 8 turns or 6000 characters of session context, a 300000-character search index (newest turns first; older ones are skipped with a notice). Raise any of them, or set retention to 0, at your own risk: a bigger index costs more per search and can exceed the model's context window, which makes `--search` and `clean` fail.
-
-**Delete by hand.**
+Then add the shell integration to your startup file, for zsh:
 
 ```bash
-atclaude history rm 12 13                      # by id
-atclaude history rm --older 90d --repo api     # by filter (a filter is required)
+eval "$(atclaude init zsh)"
 ```
 
-**Let Claude clean up.** Both commands show what they will do and ask before deleting anything (`--yes` skips the question; without a terminal `--yes` is required):
+bash, fish, PowerShell and Nushell are supported too. See [Install](docs/install.md) for every shell, building from source and requirements.
+
+## Quick tour
 
 ```bash
-atclaude history clean "anything mentioning the staging password" --in ops
-atclaude history compact --older 90d           # replace old turns with a digest per session
+@claude "explain this error: connection reset by peer"   # a one-off question
+@claude -f "quick question"                               # fast model (haiku)
+@claude -d "hard question"                                # deep model (opus)
+git diff | @claude "write a one-line commit message"      # as a pipeline step
+@claude -a "add a --verbose flag to the CLI"              # may edit files
 ```
 
-`compact` writes one summary turn per session chunk (kept at the time of the newest turn it replaces, exempt from retention and still used as session context) and deletes the originals, including their stored piped input. Compact before retention drops old turns if you want to keep what they said.
+Context carries over inside a session. By default each terminal is its own session; a `.atclauderc` containing `session = "myproject"` makes a directory share one. `atclaude config` shows every setting and where its value comes from.
 
-See `ARCHITECTURE.md` and `PERMISSIONS.md` for the design.
+```bash
+atclaude history                  # fzf over everything you asked; Enter prints the turn
+atclaude history rm --older 90d   # delete by age, session or repo (asks first)
+atclaude history compact --older 90d   # replace old turns with a summary
+```
+
+## Documentation
+
+| | |
+| :--- | :--- |
+| [Install](docs/install.md) | Homebrew, script, source; every supported shell; platforms |
+| [Usage](docs/usage.md) | Pipelines, models, sessions, all flags |
+| [History](docs/history.md) | What is stored, search, cleanup, retention, encryption |
+| [Configuration](docs/configuration.md) | All settings, layering, environment variables, prompts |
+| [Permissions](docs/permissions.md) | Read-only mode, `-a`, `-y`, hooks |
+| [Development](docs/development.md) | Building, tests, how it is put together, releases |
+
+## Status
+
+atclaude is beta software. Things to know:
+
+- Each call goes through `claude -p`, which adds about two seconds of startup. Output is printed when the answer is complete, not streamed.
+- macOS and Linux are supported. Windows is not: the code has paths for it, but it has never been built or run.
+- On Linux the encryption key is stored through the Secret Service (GNOME Keyring is tested). On machines without one, set `headless = true`.
+
+## License
+
+[MIT](LICENSE)
+
+Part of [Drumandbytes](https://drumandbytes.com/projects/).

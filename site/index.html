@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>atclaude: Claude Code in your shell prompt</title>
+<meta name="description" content="Ask Claude Code questions from your shell, use it as a step in a pipeline, and keep an encrypted, searchable history of everything you asked. macOS and Linux.">
+<link rel="canonical" href="https://atclaude.drumandbytes.dev/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="atclaude: Claude Code in your shell prompt">
+<meta property="og:description" content="Inline answers, pipeline-friendly output, sessions and an encrypted, searchable history. Uses your existing Claude Code login.">
+<meta property="og:url" content="https://atclaude.drumandbytes.dev/">
+<meta name="color-scheme" content="light dark">
+<style>
+:root{--bg:#fff;--fg:#1c1b22;--muted:#5d5c68;--line:#e3e2ea;--code:#f4f3f8;--accent:#5b3fd1}
+@media (prefers-color-scheme:dark){:root{--bg:#14131a;--fg:#ecebf3;--muted:#a09fae;--line:#2b2a36;--code:#1d1c26;--accent:#a99bff}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
+main,header,footer{max-width:760px;margin:0 auto;padding:0 16px}
+header{padding-top:56px}
+h1{font-size:2.2rem;line-height:1.2;margin:0 0 12px}
+h2{font-size:1.3rem;margin:44px 0 10px}
+p{margin:10px 0}
+a{color:var(--accent)}
+.lead{font-size:1.15rem;color:var(--muted)}
+pre,code{font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:14px 16px;overflow-x:auto;margin:12px 0}
+code{background:var(--code);border-radius:4px;padding:1px 5px}
+pre code{background:none;padding:0}
+ul{padding-left:20px}li{margin:6px 0}
+table{border-collapse:collapse;width:100%;font-size:.95rem}
+th,td{text-align:left;border-bottom:1px solid var(--line);padding:8px 10px 8px 0;vertical-align:top}
+nav a{margin-right:16px}
+footer{margin-top:56px;padding-top:20px;padding-bottom:40px;border-top:1px solid var(--line);color:var(--muted);font-size:.9rem}
+.table-wrap{overflow-x:auto}
+</style>
+</head>
+<body>
+<header>
+<h1>Claude Code, in your shell prompt</h1>
+<p class="lead">Ask questions inline, use Claude as a step in a pipeline, and keep an encrypted, searchable history of everything you asked. It runs on your existing Claude Code login, with no API key.</p>
+<nav><a href="https://github.com/drumandbytes/atclaude">GitHub</a><a href="https://github.com/drumandbytes/atclaude/tree/main/docs">Documentation</a></nav>
+</header>
+<main>
+
+<h2>Install</h2>
+<pre><code>brew install drumandbytes/tap/atclaude
+# or
+curl -fsSL https://atclaude.drumandbytes.dev/install.sh | sh</code></pre>
+<p>Then add the shell integration to your startup file (zsh shown; bash, fish, PowerShell and Nushell are supported):</p>
+<pre><code>eval "$(atclaude init zsh)"</code></pre>
+
+<h2>Use it</h2>
+<pre><code>@claude "where is auth handled in this repo?"
+
+journalctl -u app | @claude "output a JSON array of distinct error messages" | jq -r '.[]'
+
+git diff | @claude "write a one-line commit message" | pbcopy
+
+@claude --search "what was the issue with the deployment logs last week?" --since 2w</code></pre>
+
+<h2>What you get</h2>
+<ul>
+<li><strong>Pipeline-friendly.</strong> stdin is data, the argument is the instruction. When input or output is piped you get raw text: no markdown, no code fences, errors on stderr, a real exit code.</li>
+<li><strong>Safe by default.</strong> Read-only unless you pass <code>-a</code> (file edits) or <code>-y</code> (everything).</li>
+<li><strong>Sessions.</strong> Context carries over per terminal, per directory with a <code>.atclauderc</code> file, or under a name you choose.</li>
+<li><strong>History you own.</strong> Every turn is stored in an encrypted local database with its repo, branch, session and mode. Search it in plain language, browse it with fzf, delete or compact it. Keep it all, or turn recording off per call, project or machine.</li>
+<li><strong>Configurable.</strong> Every setting works as a flag, an environment variable, a project file or a global file.</li>
+</ul>
+
+<h2>Platforms</h2>
+<div class="table-wrap"><table>
+<tr><th></th><th>macOS</th><th>Linux</th><th>Windows</th></tr>
+<tr><td>Supported</td><td>yes</td><td>yes</td><td>not yet</td></tr>
+<tr><td>Shells</td><td colspan="2">zsh, bash, fish, PowerShell, Nushell</td><td>-</td></tr>
+<tr><td>History encryption key</td><td>Keychain</td><td>Secret Service, or a key file with <code>headless = true</code></td><td>-</td></tr>
+</table></div>
+<p>atclaude is beta software. Each call goes through <code>claude -p</code>, which adds about two seconds of startup, and answers print when complete rather than streaming.</p>
+
+</main>
+<footer>
+<p>MIT licensed. Part of <a href="https://drumandbytes.com/projects/">Drumandbytes</a> · <a href="https://github.com/drumandbytes/atclaude">Source on GitHub</a></p>
+</footer>
+</body>
+</html>

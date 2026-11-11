@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 use toml::{Table, Value};
 
 #[derive(Clone, Copy)]
@@ -36,7 +36,8 @@ pub const KEYS: &[(&str, Ty)] = &[
     ("payload_max_chars", Ty::Num),
 ];
 
-pub const DEFAULT_READONLY: &[&str] = &["git status", "git diff", "git log", "git show", "ls", "pwd"];
+pub const DEFAULT_READONLY: &[&str] =
+    &["git status", "git diff", "git log", "git show", "ls", "pwd"];
 
 pub struct Config {
     table: Table,
@@ -48,7 +49,11 @@ pub fn global_path() -> Option<PathBuf> {
         return Some(p.into());
     }
     #[cfg(windows)]
-    return Some(directories::ProjectDirs::from("", "", "atclaude")?.config_dir().join("config.toml"));
+    return Some(
+        directories::ProjectDirs::from("", "", "atclaude")?
+            .config_dir()
+            .join("config.toml"),
+    );
     #[cfg(not(windows))]
     {
         let base = std::env::var_os("XDG_CONFIG_HOME")
@@ -59,7 +64,9 @@ pub fn global_path() -> Option<PathBuf> {
 }
 
 fn env(key: &str) -> Option<String> {
-    std::env::var(format!("ATCLAUDE_{}", key.to_uppercase())).ok().filter(|v| !v.is_empty())
+    std::env::var(format!("ATCLAUDE_{}", key.to_uppercase()))
+        .ok()
+        .filter(|v| !v.is_empty())
 }
 
 fn read(path: &Path) -> Option<Table> {
@@ -100,15 +107,24 @@ impl Config {
         dirs.reverse(); // farthest first, so the nearest file wins
         paths.extend(dirs);
 
-        let mut cfg = Config { table: Table::new(), files: Vec::new() };
+        let mut cfg = Config {
+            table: Table::new(),
+            files: Vec::new(),
+        };
         for p in paths {
             if let Some(t) = read(&p) {
                 for (k, v) in t {
                     // a typo like `recrod = false` must not silently keep recording, and a bad
                     // value must not shadow a good one from a lower layer
                     match KEYS.iter().find(|(n, _)| *n == k) {
-                        None => eprintln!("[atclaude] {}: unknown key `{k}` (see `atclaude config`)", p.display()),
-                        Some((_, ty)) if !fits(*ty, &v) => eprintln!("[atclaude] {}: key `{k}` has the wrong type; ignored", p.display()),
+                        None => eprintln!(
+                            "[atclaude] {}: unknown key `{k}` (see `atclaude config`)",
+                            p.display()
+                        ),
+                        Some((_, ty)) if !fits(*ty, &v) => eprintln!(
+                            "[atclaude] {}: key `{k}` has the wrong type; ignored",
+                            p.display()
+                        ),
                         Some(_) => {
                             cfg.table.insert(k, v);
                         }
@@ -125,7 +141,11 @@ impl Config {
     }
 
     pub fn str(&self, key: &str) -> Option<String> {
-        env(key).or_else(|| self.get(key, Ty::Str).and_then(|v| v.as_str()).map(str::to_owned))
+        env(key).or_else(|| {
+            self.get(key, Ty::Str)
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+        })
     }
 
     pub fn bool(&self, key: &str) -> Option<bool> {
@@ -140,23 +160,39 @@ impl Config {
     }
 
     pub fn num(&self, key: &str) -> Option<usize> {
-        env(key).and_then(|e| e.parse().ok()).or_else(|| self.get(key, Ty::Num).and_then(|v| v.as_integer()).map(|n| n as usize))
+        env(key).and_then(|e| e.parse().ok()).or_else(|| {
+            self.get(key, Ty::Num)
+                .and_then(|v| v.as_integer())
+                .map(|n| n as usize)
+        })
     }
 
     pub fn list(&self, key: &str) -> Vec<String> {
         match env(key) {
-            Some(e) => e.split(',').map(|x| x.trim().to_owned()).filter(|x| !x.is_empty()).collect(),
+            Some(e) => e
+                .split(',')
+                .map(|x| x.trim().to_owned())
+                .filter(|x| !x.is_empty())
+                .collect(),
             None => self
                 .get(key, Ty::List)
                 .and_then(|v| v.as_array())
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect()
+                })
                 .unwrap_or_default(),
         }
     }
 
     pub fn readonly_commands(&self) -> Vec<String> {
         let l = self.list("readonly_commands");
-        if l.is_empty() { DEFAULT_READONLY.iter().map(|s| s.to_string()).collect() } else { l }
+        if l.is_empty() {
+            DEFAULT_READONLY.iter().map(|s| s.to_string()).collect()
+        } else {
+            l
+        }
     }
 
     /// Effective value and where it came from, for `atclaude config`.
@@ -181,17 +217,31 @@ mod tests {
         let sub = root.join("a/b");
         fs::create_dir_all(&sub).unwrap();
         let global = root.join("global.toml");
-        fs::write(&global, "record = false\nsession = \"g\"\ncontext_turns = 3\n").unwrap();
+        fs::write(
+            &global,
+            "record = false\nsession = \"g\"\ncontext_turns = 3\n",
+        )
+        .unwrap();
         fs::write(root.join(".atclauderc"), "proj\n").unwrap(); // legacy bare name
         fs::write(sub.join(".atclauderc"), "record = true\n").unwrap();
 
         let c = Config::load_from(Some(global.clone()), &sub);
         assert_eq!(c.bool("record"), Some(true), "nearest file wins");
-        assert_eq!(c.str("session").as_deref(), Some("proj"), "parent file beats global");
-        assert_eq!(c.num("context_turns"), Some(3), "global applies when nothing nearer sets it");
+        assert_eq!(
+            c.str("session").as_deref(),
+            Some("proj"),
+            "parent file beats global"
+        );
+        assert_eq!(
+            c.num("context_turns"),
+            Some(3),
+            "global applies when nothing nearer sets it"
+        );
         let c = Config::load_from(None, &root.join("nowhere"));
         assert_eq!(c.str("model"), None);
-        assert!(Config::load_from(Some(global), &root.join("nowhere")).bool("record") == Some(false));
+        assert!(
+            Config::load_from(Some(global), &root.join("nowhere")).bool("record") == Some(false)
+        );
         fs::remove_dir_all(&root).unwrap();
     }
 }
