@@ -1,5 +1,5 @@
-use anyhow::{anyhow, bail, Context, Result};
-use rusqlite::{params, Connection, Row};
+use anyhow::{Context, Result, anyhow, bail};
+use rusqlite::{Connection, Row, params};
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};

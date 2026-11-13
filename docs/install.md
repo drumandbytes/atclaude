@@ -59,7 +59,7 @@ Use `bash` instead of `zsh` in the first line for bash. macOS's stock bash 3.2 w
 | Shells | zsh, bash, fish, PowerShell, Nushell | same | not tested |
 | Encryption key | Keychain | Secret Service, or `headless` key file | not tested |
 
-macOS and Linux (glibc 2.35 or newer) have prebuilt binaries for x86-64 and arm64. Windows has code paths (Credential Manager, `cmd` for hooks) that have never been built or run.
+macOS and Linux have prebuilt binaries for x86-64 and arm64. The Linux binaries need glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40 or newer); on older systems, build from source. Windows has code paths (Credential Manager, `cmd` for hooks) that have never been built or run.
 
 ## Upgrade and uninstall
 

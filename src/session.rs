@@ -41,7 +41,9 @@ pub fn context(
     }
     let summary = llm::complete(
         Some(helper_model),
-        Some("Summarize the prior conversation in at most 10 lines. Keep facts, names, paths, decisions and open questions. Output only the summary."),
+        Some(
+            "Summarize the prior conversation in at most 10 lines. Keep facts, names, paths, decisions and open questions. Output only the summary.",
+        ),
         llm::HELPER_ARGS,
         &raw,
     );

@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
@@ -35,7 +35,9 @@ pub fn read_only_args(commands: &[String], extra: &[String]) -> Vec<String> {
             rules.push(' ');
             rules.push_str(&extra);
         }
-        None => eprintln!("[atclaude] no hook rules cached; if you have Bash hooks that rewrite commands, run `atclaude setup`"),
+        None => eprintln!(
+            "[atclaude] no hook rules cached; if you have Bash hooks that rewrite commands, run `atclaude setup`"
+        ),
     }
     for r in extra {
         rules.push(' ');
@@ -61,7 +63,9 @@ pub fn complete(
 ) -> Result<String> {
     let bin = BINARY.get().map(String::as_str).unwrap_or("claude");
     let mut cmd = Command::new(bin);
-    cmd.args(["-p", "--output-format", "text"]);
+    // Without --no-session-persistence Claude Code keeps a plaintext transcript of every call
+    // under ~/.claude/projects, next to the encrypted history and regardless of `record`.
+    cmd.args(["-p", "--no-session-persistence", "--output-format", "text"]);
     if let Some(m) = model {
         cmd.args(["--model", m]);
     }

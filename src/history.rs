@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::db::{Database, Filter, NewTurn, Turn};
 use crate::llm;
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use clap::Args;
 use std::collections::BTreeMap;
 use std::io::{BufRead, IsTerminal, Write};
@@ -126,7 +126,10 @@ pub fn search(
         bail!("no history in range");
     }
     if cut {
-        eprintln!("[atclaude] history too large for one search, using the most recent {} turns (narrow with --since/--in/--repo)", lines.len());
+        eprintln!(
+            "[atclaude] history too large for one search, using the most recent {} turns (narrow with --since/--in/--repo)",
+            lines.len()
+        );
     }
     let body = lines
         .iter()
@@ -135,9 +138,14 @@ pub fn search(
         .join("\n");
     let out = llm::complete(
         Some(model),
-        Some("You answer questions about the user's past command-line assistant history. Use only the history entries. Cite entry ids like #12. If the history does not contain the answer, say so. Be brief."),
+        Some(
+            "You answer questions about the user's past command-line assistant history. Use only the history entries. Cite entry ids like #12. If the history does not contain the answer, say so. Be brief.",
+        ),
         llm::HELPER_ARGS,
-        &format!("Now: {}\n\nHistory:\n{body}\n\nQuestion: {question}", db.now()?),
+        &format!(
+            "Now: {}\n\nHistory:\n{body}\n\nQuestion: {question}",
+            db.now()?
+        ),
     )?;
     println!("{}", out.trim_end());
     Ok(())
@@ -310,7 +318,10 @@ pub fn clean(
         bail!("no history in range");
     }
     if cut {
-        eprintln!("[atclaude] only the most recent {} turns fit; narrow with --older/--in/--repo to reach older ones", lines.len());
+        eprintln!(
+            "[atclaude] only the most recent {} turns fit; narrow with --older/--in/--repo to reach older ones",
+            lines.len()
+        );
     }
     let body = lines
         .iter()
@@ -319,7 +330,9 @@ pub fn clean(
         .join("\n");
     let out = llm::complete(
         Some(&helper_model(cfg)),
-        Some("Select history entries to delete according to the instruction. Output ONLY a JSON array of integer entry ids from the list. Be conservative: when unsure, leave an entry out. Output [] if nothing matches."),
+        Some(
+            "Select history entries to delete according to the instruction. Output ONLY a JSON array of integer entry ids from the list. Be conservative: when unsure, leave an entry out. Output [] if nothing matches.",
+        ),
         llm::HELPER_ARGS,
         &format!("Instruction: {instruction}\n\nHistory:\n{body}"),
     )?;
@@ -401,7 +414,9 @@ pub fn compact(db: &Database, cfg: &Config, f: &FilterArgs, yes: bool) -> Result
             .join("\n\n");
         let text = llm::complete(
             Some(&model),
-            Some("Condense these assistant turns into a compact digest of at most 25 lines. Keep facts, decisions, commands, file paths, names, errors and outcomes; drop pleasantries and repetition. Output only the digest."),
+            Some(
+                "Condense these assistant turns into a compact digest of at most 25 lines. Keep facts, decisions, commands, file paths, names, errors and outcomes; drop pleasantries and repetition. Output only the digest.",
+            ),
             llm::HELPER_ARGS,
             &body,
         )?;

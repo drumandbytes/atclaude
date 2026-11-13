@@ -9,7 +9,7 @@ const ACCOUNT: &str = "db-key";
 #[cfg(target_os = "macos")]
 mod imp {
     use super::*;
-    use anyhow::{bail, Context};
+    use anyhow::{Context, bail};
     use std::process::{Command, Stdio};
 
     pub fn get() -> Result<Option<String>> {
@@ -54,7 +54,7 @@ mod imp {
 #[cfg(all(unix, not(target_os = "macos")))]
 mod imp {
     use super::*;
-    use anyhow::{bail, Context};
+    use anyhow::{Context, bail};
     use std::io::Write;
     use std::process::{Command, Stdio};
 
@@ -68,10 +68,16 @@ mod imp {
             )?;
         let err = String::from_utf8_lossy(&out.stderr);
         match (out.status.success(), out.status.code()) {
-            (true, _) => Ok(Some(String::from_utf8_lossy(&out.stdout).trim().to_string()).filter(|k| !k.is_empty())),
+            (true, _) => Ok(
+                Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+                    .filter(|k| !k.is_empty()),
+            ),
             // not found: exit 1 and nothing on stderr; anything printed means the keyring itself failed
             (false, Some(1)) if err.trim().is_empty() => Ok(None),
-            _ => bail!("keyring lookup failed: {}; on a machine without a running keyring set `headless = true`", err.trim()),
+            _ => bail!(
+                "keyring lookup failed: {}; on a machine without a running keyring set `headless = true`",
+                err.trim()
+            ),
         }
     }
 
@@ -98,7 +104,10 @@ mod imp {
             .write_all(key.as_bytes())?;
         let out = child.wait_with_output()?;
         if !out.status.success() {
-            bail!("could not store the key in the keyring: {}; on a machine without a running keyring set `headless = true`", String::from_utf8_lossy(&out.stderr).trim());
+            bail!(
+                "could not store the key in the keyring: {}; on a machine without a running keyring set `headless = true`",
+                String::from_utf8_lossy(&out.stderr).trim()
+            );
         }
         Ok(())
     }

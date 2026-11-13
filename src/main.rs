@@ -1,10 +1,10 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use config::Config;
 use db::{Database, NewTurn};
 use std::io::{IsTerminal, Read, Write};
 use std::path::Path;
-use std::process::{exit, Command, Stdio};
+use std::process::{Command, Stdio, exit};
 use std::time::Instant;
 
 mod config;
@@ -192,7 +192,7 @@ fn run() -> Result<()> {
     llm::set_binary(cfg.str("claude_path"));
     match &cli.command {
         Some(Cmd::Setup { if_stale, detach }) => {
-            return setup::run(*if_stale, *detach, &cfg.readonly_commands(), &cfg.files)
+            return setup::run(*if_stale, *detach, &cfg.readonly_commands(), &cfg.files);
         }
         Some(Cmd::Config) => return show_config(&cfg),
         Some(Cmd::Session { action }) => return session_cmd(action, &cfg),
@@ -246,7 +246,9 @@ fn ask(cli: &Cli, db: &Database, cfg: &Config) -> Result<()> {
     }
     let instruction = cli.prompt.clone().unwrap_or_default();
     if instruction.is_empty() && payload.is_empty() {
-        bail!("usage: @claude \"prompt\"  |  cmd | @claude \"instruction\"  |  @claude --search \"question\"");
+        bail!(
+            "usage: @claude \"prompt\"  |  cmd | @claude \"instruction\"  |  @claude --search \"question\""
+        );
     }
     if (cli.agent || cli.yolo) && !tty {
         eprintln!(
@@ -396,12 +398,11 @@ fn truncate(s: &str, max: usize) -> String {
 
 fn strip_fence(s: &str) -> String {
     let t = s.trim();
-    if let Some(body) = t.strip_prefix("```").and_then(|r| r.strip_suffix("```")) {
-        if let Some((_lang, inner)) = body.split_once('\n') {
-            if !inner.contains("```") {
-                return format!("{}\n", inner.trim_end());
-            }
-        }
+    if let Some(body) = t.strip_prefix("```").and_then(|r| r.strip_suffix("```"))
+        && let Some((_lang, inner)) = body.split_once('\n')
+        && !inner.contains("```")
+    {
+        return format!("{}\n", inner.trim_end());
     }
     s.to_string()
 }
@@ -480,10 +481,18 @@ fn init_script(shell: &Shell, alias: Option<&str>) -> Result<String> {
         bail!("bad alias {alias:?}: use letters, digits and @ _ . : + -");
     }
     Ok(match shell {
-        Shell::Zsh | Shell::Bash => format!("export ATCLAUDE_TTY=\"$(atclaude id)\"\nalias {alias}=atclaude\natclaude setup --if-stale --detach\n"),
-        Shell::Fish => format!("set -gx ATCLAUDE_TTY (atclaude id)\nfunction {alias}; atclaude $argv; end\natclaude setup --if-stale --detach\n"),
-        Shell::Powershell => format!("$env:ATCLAUDE_TTY = (atclaude id)\nSet-Alias -Name {alias} -Value atclaude -Scope Global\natclaude setup --if-stale --detach\n"),
-        Shell::Nushell => format!("$env.ATCLAUDE_TTY = (^atclaude id | str trim)\nalias {alias} = atclaude\n^atclaude setup --if-stale --detach\n"),
+        Shell::Zsh | Shell::Bash => format!(
+            "export ATCLAUDE_TTY=\"$(atclaude id)\"\nalias {alias}=atclaude\natclaude setup --if-stale --detach\n"
+        ),
+        Shell::Fish => format!(
+            "set -gx ATCLAUDE_TTY (atclaude id)\nfunction {alias}; atclaude $argv; end\natclaude setup --if-stale --detach\n"
+        ),
+        Shell::Powershell => format!(
+            "$env:ATCLAUDE_TTY = (atclaude id)\nSet-Alias -Name {alias} -Value atclaude -Scope Global\natclaude setup --if-stale --detach\n"
+        ),
+        Shell::Nushell => format!(
+            "$env.ATCLAUDE_TTY = (^atclaude id | str trim)\nalias {alias} = atclaude\n^atclaude setup --if-stale --detach\n"
+        ),
     })
 }
 
@@ -510,9 +519,11 @@ mod tests {
             );
             assert!(init_script(&sh, Some("bad name; rm")).is_err());
         }
-        assert!(init_script(&Shell::Zsh, Some("ask"))
-            .unwrap()
-            .contains("alias ask=atclaude"));
+        assert!(
+            init_script(&Shell::Zsh, Some("ask"))
+                .unwrap()
+                .contains("alias ask=atclaude")
+        );
         assert_eq!(combine("do x", "data"), "do x\n\ndata");
         assert_eq!(combine("", "data"), "data");
         assert_eq!(strip_fence("```json\n{\"a\":1}\n```\n"), "{\"a\":1}\n");
