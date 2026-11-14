@@ -2,73 +2,85 @@
 
 Every setting can be given four ways. The first that applies wins:
 
-1. A **flag** (where one exists, such as `--no-record` or `-m`)
-2. An **environment variable**: `ATCLAUDE_` plus the setting name in capitals, e.g. `ATCLAUDE_RETENTION_DAYS=30`
+1. A **flag** (where one exists, such as `-m` or `--no-record`)
+2. An **environment variable**: `ATCLAUDE_` plus the setting name in capitals, e.g. `ATCLAUDE_MAX_TOKENS=2000`
 3. A **`.atclauderc`** file in the current directory or a parent. Closer files win over farther ones
-4. The **global config**: `~/.config/atclaude/config.toml` (`$XDG_CONFIG_HOME` is respected; `ATCLAUDE_CONFIG` points at another file)
+4. The **global config**: `~/.config/atclaude/config.toml` (`$XDG_CONFIG_HOME` is respected, on Windows `%APPDATA%\atclaude`; `ATCLAUDE_CONFIG` points at another file)
 
 ```toml
 # ~/.config/atclaude/config.toml, or .atclauderc in a project
+provider = "anthropic"
 record = true
-session = "myproject"
-model = "sonnet"
-retention_days = 180
+cache_ttl = "3d"
 ```
 
-`atclaude config` prints every setting, its effective value and its source (`env`, `config` or `default`) and the files that were read. Unknown keys and values of the wrong type are reported on stderr and ignored, so a typo never silently changes behaviour.
+`atclaude config` prints every setting, its effective value and its source (`env`, `config` or `default`), the files that were read and the configured providers. Unknown keys and values of the wrong type are reported on stderr and ignored, so a typo never silently changes behaviour. Booleans in environment variables accept `1/0`, `true/false`, `yes/no`, `on/off`.
 
-Lists in environment variables are comma-separated. Booleans accept `1/0`, `true/false`, `yes/no`, `on/off`.
+A `.atclauderc` is how a project gets its own behaviour: a repository that should never be recorded says `record = false`; one that must use a local model says `provider = "local"`.
 
-A `.atclauderc` containing only a name (`myproject`) is still read as `session = "myproject"`.
+## Providers
+
+Two wire formats are supported: Anthropic's Messages API (`type = "anthropic"`) and OpenAI-compatible chat completions (`type = "openai"`). Anthropic and OpenAI are built in and need only their API key in `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. Anything else is a table in the config:
+
+```toml
+provider = "local"                       # the default provider
+
+[providers.local]                        # Ollama
+type = "openai"
+base_url = "http://localhost:11434/v1"
+model = "llama3.2"                       # used for every tier
+
+[providers.together]                     # any OpenAI-compatible host
+type = "openai"
+base_url = "https://api.together.xyz/v1"
+api_key_env = "TOGETHER_API_KEY"         # which environment variable holds the key
+model = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+fast_model = "meta-llama/Llama-3.2-3B-Instruct-Turbo"
+```
+
+| Field | |
+| :--- | :--- |
+| `type` | `anthropic` or `openai` |
+| `base_url` | The API endpoint. Defaults to the official one for the type |
+| `api_key_env` | Environment variable holding the key. Defaults to `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`. Not needed for a local endpoint |
+| `model`, `fast_model`, `deep_model` | Models for the three tiers |
+
+Without `-p` or `provider`, atclaude uses the first of `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` that is set.
+
+API keys are read from the environment and are never written to the history or the config. Calls to the official Anthropic endpoint with a model that can decline a request ask the API to retry on a fallback model automatically.
 
 ## Settings
 
 | Setting | Default | |
 | :--- | :--- | :--- |
-| `record` | `true` | Save turns to history. `--record` / `--no-record` override per call |
-| `session` | none | Session name. `none` disables context |
-| `model` | Claude Code's default | Model for ordinary calls |
-| `fast_model` | `haiku` | What `-f` selects |
-| `deep_model` | `opus` | What `-d` selects |
-| `helper_model` | `haiku` | Model for summaries, `--search`, `history clean` and `compact` |
-| `context_turns` | `8` | Turns of the session added as context |
-| `context_budget` | `6000` | Characters of context before it is summarized |
-| `search_budget` | `300000` | Characters of history sent for `--search` and `clean` |
-| `search_prompt_chars` | `200` | Per turn, how much of the prompt the search index shows |
-| `search_response_chars` | `400` | Per turn, how much of the response it shows |
-| `retention_days` | `365` | Delete turns older than this; `0` = keep |
-| `retention_turns` | `10000` | Keep at most this many turns; `0` = unlimited |
-| `payload_max_chars` | `20000` | Stored piped input per turn is cut to this; `0` = unlimited |
-| `headless` | `false` | Keep the database key in a file instead of the OS credential store ([History](history.md#headless-machines)) |
-| `claude_path` | `claude` | The Claude Code binary: a custom location, or a `.cmd` shim |
-| `readonly_commands` | `git status`, `git diff`, `git log`, `git show`, `ls`, `pwd` | Shell commands plain `@claude` may run ([Permissions](permissions.md)) |
-| `readonly_bash` | none | Extra raw permission rules for read-only mode, e.g. `Bash(foo git status:*)` |
-| `prompt_pipe`, `prompt_interactive`, `prompt_agent` | see below | System prompts, one per mode |
+| `provider` | see above | Default provider |
+| `model` | provider's default | Model for the regular tier |
+| `fast_model` / `deep_model` | provider's default | Models for `-f` / `-d` |
+| `effort`, `fast_effort`, `deep_effort` | `medium`, `low`, `high` | Reasoning effort per tier (Anthropic only; `none` omits it) |
+| `max_tokens` | Anthropic: 64000, others: the provider's | Output limit |
+| `record` | `true` | Save calls to the history |
+| `cache` | `pipe` | When identical calls are answered from history: `pipe`, `always`, `off` |
+| `cache_ttl` | `7d` | How long a history entry can answer a call (`12h`, `3d`, `2w`, `1m`) |
+| `keychain` | `false` | Keep the history key in the OS credential store instead of a file ([History](history.md#where-the-key-lives)) |
+| `prompt_pipe`, `prompt_interactive` | see below | The system prompts |
 
-`session` and `record` can sit in a project's `.atclauderc` for per-directory behaviour; a project that should never be recorded just says `record = false`.
+Provider tables override the top-level `model`, `fast_model` and `deep_model`.
 
 ## System prompts
 
-atclaude appends one of these to Claude Code's own prompt, depending on the mode. Replace any with the setting above; multi-line TOML strings work.
+atclaude sends one of these as the system prompt, depending on whether input or output is piped. Replace either with the setting above; multi-line TOML strings work.
 
 **Pipe** (stdin or stdout is not a terminal):
 
-> You are a POSIX command-line tool in a UNIX pipeline. Output ONLY the raw text or data requested. No markdown, no code fences, no greetings, no commentary.
+> You are a command-line tool in a UNIX pipeline. Output ONLY the raw text or data requested. No markdown, no code fences, no greetings, no commentary.
 
 **Interactive** (terminal in and out):
 
 > You are an inline terminal companion. Answer directly, no pleasantries. Keep it under 15 lines unless asked for more. Prefer commands, snippets and paths over background.
 
-**Agent** (`-a` or `-y`):
-
-> You are a workspace agent. After edits or test runs, output ONLY a concise ledger: `[ACTION] <path> | [STATUS] <ok/fail> | [SUMMARY] <one line>`. No diff dumps unless asked.
-
-When a session has history, the context is appended as "Earlier turns in this session, for continuity:" followed by the turns or their summary.
-
 ## Environment variables that are not settings
 
 | Variable | |
 | :--- | :--- |
-| `ATCLAUDE_SESSION` | Same as `--session` |
-| `ATCLAUDE_TTY` | The terminal id; set by the [shell integration](install.md#shell-integration), not by hand |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (or the variable named by `api_key_env`) | Provider credentials |
 | `ATCLAUDE_CONFIG` | Path of the global config file |

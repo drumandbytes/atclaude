@@ -1,6 +1,6 @@
 #!/bin/sh
 # Installs atclaude from its latest GitHub release.
-#   curl -fsSL https://atclaude.drumandbytes.dev/install.sh | sh
+#   curl -fsSL https://github.com/drumandbytes/atclaude/releases/latest/download/install.sh | sh
 # ATCLAUDE_VERSION=v0.1.0 pins a release; ATCLAUDE_INSTALL_DIR changes the target
 # (default ~/.local/bin); ATCLAUDE_DOWNLOAD_URL replaces the release download URL (mirrors, tests).
 set -eu
@@ -59,6 +59,5 @@ case ":$PATH:" in
   *":$dir:"*) ;;
   *) echo "Add $dir to your PATH." ;;
 esac
-# shellcheck disable=SC2016 # the $(...) is meant literally
-echo 'Next, add the shell integration to your startup file, e.g. for zsh: eval "$(atclaude init zsh)"'
-echo "Other shells and the full setup: https://atclaude.drumandbytes.dev"
+echo 'Next, set an API key (for example: export ANTHROPIC_API_KEY=...) and try: atclaude "hello"'
+echo "Setup and usage: https://github.com/drumandbytes/atclaude#readme"

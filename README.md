@@ -1,78 +1,76 @@
 # atclaude
 
-Ask [Claude Code](https://docs.claude.com/en/docs/claude-code) questions from your shell prompt, use it as a step in a pipeline, and keep an encrypted, searchable history of everything you asked.
-
-[Website](https://atclaude.drumandbytes.dev/?ref=atclaude-readme) · [Install](docs/install.md) · [Usage](docs/usage.md) · [Configuration](docs/configuration.md)
+Call AI models from the command line the way you call `jq`, `grep` or `curl`: data on stdin, an instruction as the argument, the result on stdout. Every call is saved to an encrypted local history, so identical calls are answered instantly and nothing you asked is lost.
 
 ```bash
-@claude "where is auth handled in this repo?"
+atclaude "where does a unix pipe buffer its data?"
 
-journalctl -u app | @claude "output a JSON array of distinct error messages" | jq -r '.[]'
+journalctl -u app | atclaude "output a JSON array of distinct error messages" | jq -r '.[]'
 
-@claude --search "what was the issue with the deployment logs last week?" --since 2w
+git diff | atclaude -f "write a one-line commit message" | pbcopy
+
+atclaude -d "review this design for race conditions" < design.md
 ```
 
-- **Inline.** One command, no TUI. Answers print and the prompt returns.
-- **Pipeline-friendly.** stdin is data, the argument is the instruction. When input or output is piped you get raw text: no markdown, no code fences, errors on stderr, a real exit code.
-- **Safe by default.** Read-only unless you pass `-a` (edits) or `-y` (everything).
-- **Sessions.** Context carries over per terminal, per directory (a `.atclauderc` file), or under a name you choose.
-- **History you own.** Every turn is stored in an encrypted local database with its repo, branch, session and mode. Search it in plain language, browse it with fzf, delete or compact it.
+- **A real Unix filter.** When input or output is piped you get raw text: no markdown, no code fences, errors on stderr, a non-zero exit code on failure.
+- **Any provider.** Anthropic and any OpenAI-compatible endpoint, which covers OpenAI, Ollama and other local runners, and most hosted services. No vendor CLI, no SDK.
+- **Fast.** Answers stream to your terminal as they arrive. Starting up takes milliseconds, and a call that is already in your history returns without touching the network.
+- **Fast, regular and deep tiers.** `-f` and `-d` pick a model for the job; each provider maps them to its own models.
+- **History you own.** Prompts, input and responses are compressed and encrypted on disk. Browse it, delete from it, back the key up as 24 words.
 - **Configurable.** Every setting works as a flag, an environment variable, a project file or a global file.
-
-atclaude runs on top of your existing Claude Code login. It needs no API key.
 
 ## Install
 
 ```bash
-brew install drumandbytes/tap/atclaude          # macOS, Linux with Homebrew
+curl -fsSL https://github.com/drumandbytes/atclaude/releases/latest/download/install.sh | sh
 # or
-curl -fsSL https://atclaude.drumandbytes.dev/install.sh | sh
+brew install drumandbytes/tap/atclaude
 ```
 
-Then add the shell integration to your startup file, for zsh:
+Then give it a provider:
 
 ```bash
-eval "$(atclaude init zsh)"
+export ANTHROPIC_API_KEY=...      # or OPENAI_API_KEY, or configure a local model
+atclaude "hello"
 ```
 
-bash, fish, PowerShell and Nushell are supported too. See [Install](docs/install.md) for every shell, building from source and requirements.
+See [Install](docs/install.md) for other platforms and building from source, and [Configuration](docs/configuration.md) for local models and other providers.
 
-## Quick tour
+## Usage
 
 ```bash
-@claude "explain this error: connection reset by peer"   # a one-off question
-@claude -f "quick question"                               # fast model (haiku)
-@claude -d "hard question"                                # deep model (opus)
-git diff | @claude "write a one-line commit message"      # as a pipeline step
-@claude -a "add a --verbose flag to the CLI"              # may edit files
+atclaude "question"                    # ask; the answer streams to the terminal
+cmd | atclaude "instruction" | cmd2    # a pipeline step
+atclaude -f "..."                      # fast tier
+atclaude -d "..."                      # reasoning tier
+atclaude -p local "..."                # a configured provider
+atclaude --no-cache "..."              # ask again even if the call is in your history
+atclaude --no-record "..."             # don't save this call
+
+atclaude history                       # browse everything you asked (fzf when available)
+atclaude history rm --older 90d        # delete by age (asks first)
+atclaude key show                      # your history key as 24 words
+atclaude config                        # every setting and where its value comes from
 ```
 
-Context carries over inside a session. By default each terminal is its own session; a `.atclauderc` containing `session = "myproject"` makes a directory share one. `atclaude config` shows every setting and where its value comes from.
-
-```bash
-atclaude history                  # fzf over everything you asked; Enter prints the turn
-atclaude history rm --older 90d   # delete by age, session or repo (asks first)
-atclaude history compact --older 90d   # replace old turns with a summary
-```
+More in [Usage](docs/usage.md) and [History](docs/history.md).
 
 ## Documentation
 
 | | |
 | :--- | :--- |
-| [Install](docs/install.md) | Homebrew, script, source; every supported shell; platforms |
-| [Usage](docs/usage.md) | Pipelines, models, sessions, all flags |
-| [History](docs/history.md) | What is stored, search, cleanup, retention, encryption |
-| [Configuration](docs/configuration.md) | All settings, layering, environment variables, prompts |
-| [Permissions](docs/permissions.md) | Read-only mode, `-a`, `-y`, hooks |
+| [Install](docs/install.md) | Script, Homebrew, source; platforms |
+| [Usage](docs/usage.md) | Pipelines, tiers, caching, flags |
+| [Configuration](docs/configuration.md) | Providers, models, every setting, environment variables |
+| [History](docs/history.md) | What is stored, encryption and keys, deleting |
 | [Development](docs/development.md) | Building, tests, how it is put together, releases |
 
 ## Status
 
-atclaude is beta software. Things to know:
+atclaude is beta software.
 
-- Each call goes through `claude -p`, which adds about two seconds of startup. Output is printed when the answer is complete, not streamed.
-- macOS and Linux are supported. Windows is not: the code has paths for it, but it has never been built or run.
-- On Linux the encryption key is stored through the Secret Service (GNOME Keyring is tested). On machines without one, set `headless = true`.
+- macOS and Linux are tested. Windows is untested.
+- Planned, not yet available: context assembled from your history, plain-language search of it, usage and cost statistics with prompt integration, size-based retention, and an agent mode.
 
 ## License
 

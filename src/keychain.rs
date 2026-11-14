@@ -64,7 +64,7 @@ mod imp {
             .stderr(Stdio::piped())
             .output()
             .context(
-                "cannot run `secret-tool` (install libsecret-tools), or set `headless = true`",
+                "cannot run `secret-tool` (install libsecret-tools), or use the default key file (`keychain = false`)",
             )?;
         let err = String::from_utf8_lossy(&out.stderr);
         match (out.status.success(), out.status.code()) {
@@ -75,7 +75,7 @@ mod imp {
             // not found: exit 1 and nothing on stderr; anything printed means the keyring itself failed
             (false, Some(1)) if err.trim().is_empty() => Ok(None),
             _ => bail!(
-                "keyring lookup failed: {}; on a machine without a running keyring set `headless = true`",
+                "keyring lookup failed: {}; on a machine without a running keyring use the default key file (`keychain = false`)",
                 err.trim()
             ),
         }
@@ -95,7 +95,7 @@ mod imp {
             .stderr(Stdio::piped())
             .spawn()
             .context(
-                "cannot run `secret-tool` (install libsecret-tools), or set `headless = true`",
+                "cannot run `secret-tool` (install libsecret-tools), or use the default key file (`keychain = false`)",
             )?;
         child
             .stdin
@@ -105,7 +105,7 @@ mod imp {
         let out = child.wait_with_output()?;
         if !out.status.success() {
             bail!(
-                "could not store the key in the keyring: {}; on a machine without a running keyring set `headless = true`",
+                "could not store the key in the keyring: {}; on a machine without a running keyring use the default key file (`keychain = false`)",
                 String::from_utf8_lossy(&out.stderr).trim()
             );
         }

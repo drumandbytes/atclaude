@@ -18,7 +18,7 @@ permissions:
 jobs:
   # One native build per target; each uploads its tarball to the release that
   # release-please already created. Native runners, not cross-compilation: the
-  # database's vendored OpenSSL is C code.
+  # bundled SQLite and zstd are C code.
   build:
     name: Build ${{ matrix.name }}
     if: github.event_name == 'push'
@@ -89,6 +89,8 @@ jobs:
           sha256sum atclaude_*.tar.gz > checksums.txt
           cat checksums.txt
           gh release upload "$TAG" checksums.txt --clobber
+          # the installer is served from the release, so its URL is stable
+          gh release upload "$TAG" scripts/install.sh --clobber
 
       - name: Homebrew formula
         env:
@@ -141,8 +143,9 @@ jobs:
         run: |
           set -euo pipefail
           export ATCLAUDE_VERSION="$TAG" ATCLAUDE_INSTALL_DIR="$RUNNER_TEMP/bin"
-          sh site/install.sh
+          sh scripts/install.sh
           out=$("$ATCLAUDE_INSTALL_DIR/atclaude" --version)
           echo "$out"
           [ "$out" = "atclaude ${TAG#v}" ]
-          "$ATCLAUDE_INSTALL_DIR/atclaude" init bash | grep -q ATCLAUDE_TTY
+          # no network, no API key: the history key and database are created on first use only
+          "$ATCLAUDE_INSTALL_DIR/atclaude" config | grep -q providers

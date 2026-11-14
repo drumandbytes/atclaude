@@ -1,87 +1,69 @@
 # Usage
 
-`@claude` is the command the [shell integration](install.md#shell-integration) defines; it runs `atclaude`. Both work.
-
 ```bash
-@claude "where is auth handled in this repo?"
+atclaude "where does a unix pipe buffer its data?"
 ```
+
+On a terminal the answer streams as it is generated.
 
 ## Pipelines
 
 stdin is data and the argument is the instruction. With only stdin, the input itself is the prompt.
 
 ```bash
-cat error.log | @claude "extract the 500 status codes" | jq .
-git diff | @claude "write a one-line commit message" | pbcopy
-journalctl -u app | @claude "output a JSON array of distinct error messages" | jq -r '.[]'
+cat error.log | atclaude "extract the 500 status codes" | jq .
+git diff | atclaude "write a one-line commit message" | pbcopy
+journalctl -u app | atclaude "output a JSON array of distinct error messages" | jq -r '.[]'
 ```
 
-Whenever stdin **or** stdout is not a terminal you get raw output: a system prompt asks for plain text with no greeting or commentary, a single wrapping code fence is stripped, diagnostics go to stderr, and failures return a non-zero exit code. A reader that exits early (`| head -n 1`) is fine.
+Whenever stdin **or** stdout is not a terminal, atclaude behaves as a filter: a system prompt asks for plain text with no greeting or commentary, a single wrapping code fence is stripped, diagnostics go to stderr, and the output is written once, when the answer is complete. A reader that exits early (`| head -n 1`) is fine.
 
 Things to know when chaining:
 
-- atclaude reads all of stdin before answering and prints once at the end. `tail -f log | @claude` waits for the stream to end.
-- Each stage costs about two seconds, mostly Claude Code's startup.
+- atclaude reads all of stdin before calling the model. `tail -f log | atclaude` waits for the stream to end.
 - Model output is not deterministic. When another tool parses the result, name the format in the instruction ("output a JSON array of ...").
-- Piped runs are [recorded](history.md) like any other, piped input included. Use `--no-record` for sensitive input.
+- If the answer is cut off at the output limit, atclaude says so on stderr; raise [`max_tokens`](configuration.md).
+- The exit code is `0` on success and `1` on any failure (network, provider error, a refused request, configuration).
 
-## Models
+## Tiers and models
 
-| Flag | Model |
-| :--- | :--- |
-| `-f`, `--fast` | `fast_model`, default `haiku` |
-| `-d`, `--deep` | `deep_model`, default `opus` |
-| `-m NAME`, `--model NAME` | any model name or alias `claude --model` accepts |
+| Flag | Tier | Anthropic default |
+| :--- | :--- | :--- |
+| `-f`, `--fast` | fast | `claude-haiku-5-5`, effort `low` |
+| (none) | regular | `claude-sonnet-5-5`, effort `medium` |
+| `-d`, `--deep` | deep | `claude-opus-5-5`, effort `high` |
+| `-m NAME`, `--model NAME` | an exact model name | |
 
-Without a flag, the `model` setting applies, and without that Claude Code's own default. Summaries and `--search` use `helper_model` (default `haiku`) unless you pass a model flag. See [Configuration](configuration.md).
+Other providers have no built-in models: set `model` (and optionally `fast_model` and `deep_model`) for the provider. A provider with only `model` set uses it for every tier. See [Configuration](configuration.md).
 
-## Sessions
+## Caching
 
-A session is a name. Turns in the same session share context: the last 8 turns (prompts and responses) are added to the system prompt, and when they exceed 6000 characters the helper model summarizes them first. Piped input is never part of the context.
+A call identical to one already in your history is answered from the history, with no network request and no cost. "Identical" means the same provider, model, system prompt, instruction, input, effort and token limit. Entries expire after `cache_ttl` (default 7 days).
 
-The session is the first of these that applies:
+By default the cache is used for piped calls (`cache = "pipe"`), where repeating a script should repeat its result. Interactive questions always go to the model, since you usually ask again to get a fresh answer. Set `cache = "always"` to use it everywhere or `"off"` to never. `--no-cache` skips it for one call.
 
-1. `--session NAME` or `ATCLAUDE_SESSION`: one session across directories and terminals.
-2. `session = "name"` in a `.atclauderc` in the current directory or any parent directory, or in the global config.
-3. The current terminal (the shell integration sets `ATCLAUDE_TTY`), as `tty-<id>`. Only when stdin is a terminal.
-4. None: no context, but the turn is still recorded.
+A call can only be served from history if it was recorded, so `record = false` and `--no-record` calls never become cache entries.
 
-`none` at any level means no session. Piped input skips step 3, so a pipeline has no context unless you name a session.
+## Recording
 
-```bash
-atclaude session current    # the session this directory resolves to
-atclaude session list       # every session in your history
-```
+Every successful call is saved to the [history](history.md) after its output has been written. `--no-record` skips it for one call; `record = false` (or `ATCLAUDE_RECORD=0`) turns it off for a directory or everywhere, and `--record` overrides that for one call.
 
-## Changing files
+## Providers
 
-By default atclaude is read-only. `-a` allows file edits and basic file commands, `-y` skips every permission check. Both need a terminal. See [Permissions](permissions.md).
-
-## Searching history
-
-```bash
-@claude --search "what broke the deploy?" --in backend --repo api --since 2w
-```
-
-See [History](history.md).
+`-p NAME` (`--provider`) selects a provider for one call. Without it, atclaude uses the `provider` setting, then whichever of `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` is set. See [Configuration](configuration.md#providers).
 
 ## Reference
 
 | Flag | |
 | :--- | :--- |
-| `-s`, `--session NAME` | Session for this call (`ATCLAUDE_SESSION`) |
-| `-f`, `-d`, `-m` | Model, see above |
-| `-a`, `--agent` | Allow file edits (terminal only) |
-| `-y`, `--yolo` | Skip all permission checks (terminal only) |
-| `--record`, `--no-record` | Save or don't save this turn |
-| `--search QUESTION` | Answer from your history, with `--since`, `--older`, `--in`, `--repo` |
+| `-p`, `--provider NAME` | Provider for this call |
+| `-f`, `--fast` / `-d`, `--deep` | Tier |
+| `-m`, `--model NAME` | Exact model |
+| `--no-cache` | Skip the history cache |
+| `--record` / `--no-record` | Save or don't save this call |
 
 | Command | |
 | :--- | :--- |
-| `atclaude init <shell>` | Print the shell integration |
-| `atclaude setup` | Refresh the read-only command cache (see [Permissions](permissions.md)) |
 | `atclaude config` | Show every setting and where its value comes from |
-| `atclaude history` | Browse, `show`, `rm`, `compact`, `clean` |
-| `atclaude session` | `list`, `current` |
-
-Exit codes: `0` success, `1` failure (model, database, usage), `2` `-a` or `-y` without a terminal.
+| `atclaude history` | Browse, `show`, `rm` ([History](history.md)) |
+| `atclaude key` | `show`, `import`, `rotate` ([History](history.md#the-key)) |

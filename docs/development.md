@@ -9,33 +9,34 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo fmt --check
 ```
 
-The history database is SQLCipher with a vendored OpenSSL, so building needs a C compiler, `make` and Perl. The first build takes a few minutes.
+Building needs a Rust toolchain and a C compiler (bundled SQLite and zstd). The end-to-end tests in `tests/cli.rs` run the real binary against a local mock server that speaks both wire formats, so they need no network or API key.
 
-Debug builds read `ATCLAUDE_DB` (database path) and `ATCLAUDE_DB_KEY` (a 64-character hex key or a passphrase) so development and tests never touch your real history or credential store. Release builds ignore both. `ATCLAUDE_CONFIG` points at a throwaway config file in any build.
+Debug builds read `ATCLAUDE_DB` (the database path) so development and tests never touch your real history. Release builds ignore it. `ATCLAUDE_CONFIG` points any build at a throwaway config file.
 
 ## Layout
 
 | File | |
 | :--- | :--- |
-| `src/main.rs` | Command line, the `ask` flow, shell integration scripts |
-| `src/llm.rs` | Runs `claude -p` (prompt on stdin), system prompts, tool and permission flags |
-| `src/session.rs` | Session resolution and context building |
-| `src/config.rs` | Layered settings; every key also reads `ATCLAUDE_<KEY>` |
-| `src/db.rs` | SQLCipher database: schema, filters, retention, delete and replace |
-| `src/keychain.rs` | The database key in the OS credential store, one backend per OS |
-| `src/history.rs` | `--search`, browsing, `rm`, `clean`, `compact` |
-| `src/setup.rs` | Probes Bash hooks and caches the rewritten read-only rules |
-| `site/` | The website and `install.sh`, deployed to Cloudflare Pages |
+| `src/main.rs` | Command line and the `ask` flow |
+| `src/provider.rs` | The two wire formats, streaming, retries, model and effort selection |
+| `src/store.rs` | The history: schema, encryption, cache lookups, listing, deleting |
+| `src/key.rs` | The master key: file storage, 24-word form |
+| `src/keychain.rs` | The OS credential store, one backend per OS |
+| `src/config.rs` | Layered settings and `[providers.NAME]` tables |
+| `src/history.rs` | Browsing and deleting |
+| `scripts/install.sh` | The installer, attached to every release |
 | `packaging/` | Template for the Homebrew formula |
 
 ## Notes for contributors
 
-- All model calls go through `llm::complete`, which shells out to `claude -p`, so atclaude works with a Claude subscription and needs no API key. Helper calls use `--safe-mode` and no tools.
-- On macOS the key is read through `/usr/bin/security` instead of a keychain library: macOS ties "Always Allow" to the calling binary, so a library would prompt again after every upgrade, while `security` never changes.
-- A new database key is only generated when no database exists, so a missing key can never orphan existing history.
-- The shell integration calls `atclaude id` when the shell starts instead of embedding an id, so cached init output still gives every terminal its own session. `atclaude setup --detach` re-runs itself in the background, so no shell needs its own backgrounding syntax.
-- The schema has no migrations yet. Add `PRAGMA user_version` migrations before changing it after a release.
+- All model calls go through `provider.rs`. Adding a provider with a new wire format means a new `Kind` and its request body and stream parser; OpenAI-compatible services need no code.
+- History content is compressed, then encrypted per record; metadata stays plain so tools can read statistics without the key. Keep prompt and response text out of the plain columns.
+- The cache key is a keyed hash (BLAKE3 with the data key), so the stored value reveals nothing about the call.
+- The data key never changes; the master key wraps it. `key rotate` re-wraps, which is why it is instant.
+- The schema is versioned with `PRAGMA user_version`. Add a migration before changing it after a release.
+- On macOS the optional credential-store key is read through `/usr/bin/security` rather than a keychain library: macOS ties "Always Allow" to the calling binary, so a library would prompt again after every upgrade, while `security` never changes.
+- Bookkeeping (recording the turn, updating statistics) happens after the output is written and flushed, so a pipeline downstream never waits for it.
 
 ## Releases
 
-Commits follow [Conventional Commits](https://www.conventionalcommits.org/); release-please keeps a release pull request open and merging it tags a release. The tag triggers `.github/workflows/release.yml`, which builds on native runners for macOS and Linux (x86-64 and arm64), attaches the tarballs and `checksums.txt` to the GitHub release, updates the formula in `drumandbytes/homebrew-tap` and smoke-tests the published `install.sh` on each platform. The website in `site/` deploys when it changes on `main`.
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/); release-please keeps a release pull request open and merging it tags a release. The tag triggers `.github/workflows/release.yml`, which builds on native runners for macOS and Linux (x86-64 and arm64), attaches the tarballs, `checksums.txt` and `install.sh` to the GitHub release, updates the formula in `drumandbytes/homebrew-tap` and smoke-tests the published installer on each platform.

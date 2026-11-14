@@ -2,10 +2,10 @@
 name = "atclaude"
 version = "0.1.0"
 edition = "2024"
-description = "Inline shell companion for Claude Code with encrypted, searchable history"
+description = "Call AI models from the command line like any other filter, with an encrypted, searchable history"
 license = "MIT"
 repository = "https://github.com/drumandbytes/atclaude"
-homepage = "https://atclaude.drumandbytes.dev"
+homepage = "https://github.com/drumandbytes/atclaude"
 readme = "README.md"
 
 [profile.release]

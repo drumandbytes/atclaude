@@ -1,7 +1,7 @@
 # Template for the formula that release.yml writes to drumandbytes/homebrew-tap.
 class Atclaude < Formula
-  desc "Inline shell companion for Claude Code with encrypted, searchable history"
-  homepage "https://atclaude.drumandbytes.dev"
+  desc "Call AI models from the command line like any other filter, with encrypted history"
+  homepage "https://github.com/drumandbytes/atclaude"
   version "@VERSION@"
   license "MIT"
 
@@ -33,9 +33,10 @@ class Atclaude < Formula
 
   def caveats
     <<~EOS
-      Add the shell integration to your shell's startup file, for zsh:
-        eval "$(atclaude init zsh)"
-      Other shells and the full setup: https://atclaude.drumandbytes.dev
+      Set an API key to get started, for example:
+        export ANTHROPIC_API_KEY=...
+      Then try: atclaude "hello"
+      Docs: https://github.com/drumandbytes/atclaude#readme
     EOS
   end
 

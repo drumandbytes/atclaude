@@ -41,7 +41,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - run: shellcheck site/install.sh
+      - run: shellcheck scripts/install.sh
 
   zizmor:
     uses: drumandbytes/reusable-actions/.github/workflows/zizmor.yml@v1

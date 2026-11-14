@@ -2,20 +2,12 @@
 
 ## Requirements
 
-- [Claude Code](https://docs.claude.com/en/docs/claude-code) installed, on your `PATH` (or set [`claude_path`](configuration.md)), and logged in. atclaude calls `claude -p` and uses its login.
-- macOS or Linux. [fzf](https://github.com/junegunn/fzf) is optional and powers the history browser.
-- Linux only: for the encryption key, a Secret Service provider (GNOME Keyring, KWallet, KeePassXC) and the `secret-tool` command (package `libsecret-tools`). Without one, use [headless mode](history.md#headless-machines).
-
-## Homebrew
-
-```bash
-brew install drumandbytes/tap/atclaude
-```
+An API key for a provider (or a local model server such as Ollama). Nothing else: atclaude is a single binary that calls the provider's API directly.
 
 ## Install script
 
 ```bash
-curl -fsSL https://atclaude.drumandbytes.dev/install.sh | sh
+curl -fsSL https://github.com/drumandbytes/atclaude/releases/latest/download/install.sh | sh
 ```
 
 The script picks the release for your OS and architecture, verifies it against the published checksums and installs `atclaude` to `~/.local/bin`. It refuses to install on a checksum mismatch.
@@ -26,6 +18,12 @@ The script picks the release for your OS and architecture, verifies it against t
 | `ATCLAUDE_INSTALL_DIR=/usr/local/bin` | Install somewhere else |
 | `ATCLAUDE_DOWNLOAD_URL=...` | Download from a mirror |
 
+## Homebrew
+
+```bash
+brew install drumandbytes/tap/atclaude
+```
+
 ## From source
 
 ```bash
@@ -34,38 +32,20 @@ cd atclaude
 cargo install --path .
 ```
 
-The encrypted database is built from source, which needs a C compiler and Perl. See [Development](development.md).
-
-## Shell integration
-
-Add one line to your shell's startup file. It gives each terminal its own session, defines the command and keeps the [read-only command cache](permissions.md#hooks-that-rewrite-commands) fresh in the background. The output can be cached.
-
-| Shell | Startup line | Command |
-| :--- | :--- | :--- |
-| zsh (`~/.zshrc`), bash (`~/.bashrc`) | `eval "$(atclaude init zsh)"` | `@claude` |
-| fish (`config.fish`) | `atclaude init fish \| source` | `@claude` |
-| PowerShell (`$PROFILE`) | `atclaude init powershell \| Out-String \| Invoke-Expression` | `ask` |
-| Nushell | in `env.nu`: `atclaude init nushell \| save -f ~/.cache/atclaude.nu`, in `config.nu`: `source ~/.cache/atclaude.nu` | `ask` |
-
-Use `bash` instead of `zsh` in the first line for bash. macOS's stock bash 3.2 works with the `eval` form shown.
-
-`atclaude init <shell> --alias NAME` picks another command name. PowerShell and Nushell don't accept `@claude` as a command, which is why they default to `ask`.
+Building needs a Rust toolchain and a C compiler (SQLite and zstd are compiled from source). No OpenSSL or other system libraries are needed.
 
 ## Platforms
 
-| | macOS | Linux | Windows |
-| :--- | :--- | :--- | :--- |
-| Supported | yes | yes | no |
-| Shells | zsh, bash, fish, PowerShell, Nushell | same | not tested |
-| Encryption key | Keychain | Secret Service, or `headless` key file | not tested |
+| | Prebuilt binary | Tested |
+| :--- | :--- | :--- |
+| macOS, arm64 and x86-64 | yes | yes |
+| Linux, arm64 and x86-64 | yes (glibc 2.39 or newer: Ubuntu 24.04, Debian 13, Fedora 40) | yes |
+| Windows | no | no |
 
-macOS and Linux have prebuilt binaries for x86-64 and arm64. The Linux binaries need glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40 or newer); on older systems, build from source. Windows has code paths (Credential Manager, `cmd` for hooks) that have never been built or run.
+On older Linux systems, build from source. Windows has code paths (Credential Manager for the optional [credential store](history.md#where-the-key-lives)) that have never been built or run.
+
+The command is `atclaude`. If you want something shorter, alias it in your shell: `alias ai=atclaude`.
 
 ## Upgrade and uninstall
 
-```bash
-brew upgrade atclaude              # Homebrew
-curl -fsSL https://atclaude.drumandbytes.dev/install.sh | sh   # script: reinstalls the latest
-```
-
-To uninstall, remove the binary and, if you want to delete your data, the history database and key (see [History](history.md#where-it-is-stored)).
+Run the install script again, or `brew upgrade atclaude`. To uninstall, remove the binary. Your history and key are separate; see [History](history.md#where-things-are-stored) for where they live.
