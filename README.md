@@ -44,6 +44,7 @@ cmd | atclaude "instruction" | cmd2    # a pipeline step
 atclaude -f "..."                      # fast tier
 atclaude -d "..."                      # reasoning tier
 atclaude -p local "..."                # a configured provider
+atclaude -a "..."                     # agent: the model reads and searches files here (--write, --run to allow more)
 atclaude -c "..."                     # include earlier turns from this directory
 atclaude --no-cache "..."              # ask again even if the call is in your history
 atclaude --no-record "..."             # don't save this call
@@ -67,6 +68,7 @@ More in [Usage](docs/usage.md) and [History](docs/history.md).
 | [Usage](docs/usage.md) | Pipelines, tiers, caching, flags |
 | [Configuration](docs/configuration.md) | Providers, models, every setting, environment variables |
 | [History](docs/history.md) | What is stored, encryption and keys, deleting |
+| [Agent](docs/agent.md) | Tools, permissions, limits |
 | [Stats](docs/stats.md) | Usage totals, Starship and Oh My Posh examples |
 | [Development](docs/development.md) | Building, tests, how it is put together, releases |
 
@@ -75,7 +77,7 @@ More in [Usage](docs/usage.md) and [History](docs/history.md).
 atclaude is beta software.
 
 - macOS and Linux are tested. Windows is untested.
-- Planned, not yet available: an agent mode.
+- Agent mode has run against a mock server and one OpenAI-compatible provider; the Anthropic tool-call format has not run against the real API yet.
 
 ## License
 

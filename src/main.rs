@@ -8,6 +8,7 @@ use std::process::{Command, Stdio, exit};
 use std::time::Instant;
 use store::{Content, Meta, Store};
 
+mod agent;
 mod config;
 mod context;
 mod curate;
@@ -54,6 +55,18 @@ struct Cli {
     /// Send no earlier turns, even if the `context` setting is on
     #[arg(long)]
     no_context: bool,
+
+    /// Let the model use tools to read and search files in this directory
+    #[arg(short = 'a', long)]
+    agent: bool,
+
+    /// With --agent: allow creating and editing files
+    #[arg(long, requires = "agent")]
+    write: bool,
+
+    /// With --agent: allow running shell commands
+    #[arg(long, requires = "agent")]
+    run: bool,
 
     /// Call the model even if an identical call is in the history
     #[arg(long)]
@@ -228,7 +241,13 @@ fn ask(cli: &Cli, cfg: &Config, keychain: bool) -> Result<()> {
 
     // Raw output whenever either end is a pipe.
     let piped = !stdin_tty || !stdout_tty;
-    let mode = if piped { "pipe" } else { "interactive" };
+    let mode = if cli.agent {
+        "agent"
+    } else if piped {
+        "pipe"
+    } else {
+        "interactive"
+    };
     let system = if piped {
         cfg.str("prompt_pipe").unwrap_or_else(|| PROMPT_PIPE.into())
     } else {
@@ -270,7 +289,8 @@ fn ask(cli: &Cli, cfg: &Config, keychain: bool) -> Result<()> {
     if !["pipe", "always", "off"].contains(&cache_mode.as_str()) {
         bail!("`cache` must be \"pipe\", \"always\" or \"off\"");
     }
-    let use_cache = !cli.no_cache && (cache_mode == "always" || (cache_mode == "pipe" && piped));
+    let use_cache =
+        !cli.no_cache && !cli.agent && (cache_mode == "always" || (cache_mode == "pipe" && piped));
 
     let cwd = std::env::current_dir()?;
     let dir = store::dir_hash(&cwd);
@@ -325,17 +345,36 @@ fn ask(cli: &Cli, cfg: &Config, keychain: bool) -> Result<()> {
         system: &system,
         user: &user,
         history: &history,
+        tools: &[],
+        follow: &[],
         effort: effort.as_deref(),
         max_tokens,
     };
     // A terminal gets the answer as it arrives; a pipe gets it whole, so a wrapping code fence
     // can be stripped. NOTE: filter the fence while streaming if piped latency ever matters.
-    let reply = provider.complete(&req, &mut |piece| {
+    let mut show = |piece: &str| {
         if !piped {
             print!("{piece}");
             let _ = std::io::stdout().flush();
         }
-    })?;
+    };
+    let reply = if cli.agent {
+        agent::run(
+            &agent::Opts {
+                cfg,
+                provider: &provider,
+                model: &model,
+                effort: effort.as_deref(),
+                max_tokens,
+                user: &user,
+                write: cli.write,
+                run: cli.run,
+            },
+            &mut show,
+        )?
+    } else {
+        provider.complete(&req, &mut show)?
+    };
     if reply.stop == "refusal" {
         bail!("the model declined this request");
     }

@@ -40,6 +40,8 @@ fn call(cfg: &Config, tier: Tier, system: &str, user: &str, show: bool) -> Resul
         system,
         user,
         history: &[],
+        tools: &[],
+        follow: &[],
         effort: effort.as_deref(),
         max_tokens: cfg.num("max_tokens"),
     };

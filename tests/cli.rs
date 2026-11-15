@@ -6,6 +6,38 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+#[derive(Clone)]
+enum Step {
+    Text(&'static str),
+    /// tool name, arguments as JSON text
+    Call(&'static str, &'static str),
+}
+
+fn tool_events(anthropic: bool, name: &str, args: &str, n: usize) -> String {
+    let (a, b) = args.split_at(args.len() / 2);
+    let q = |s: &str| serde_json::to_string(s).unwrap();
+    if anthropic {
+        format!(
+            "event: message_start\ndata: {{\"type\":\"message_start\",\"message\":{{\"model\":\"served-model\",\"usage\":{{\"input_tokens\":11}}}}}}\n\n\
+             event: content_block_start\ndata: {{\"type\":\"content_block_start\",\"index\":1,\"content_block\":{{\"type\":\"tool_use\",\"id\":\"call_{n}\",\"name\":\"{name}\",\"input\":{{}}}}}}\n\n\
+             event: content_block_delta\ndata: {{\"type\":\"content_block_delta\",\"index\":1,\"delta\":{{\"type\":\"input_json_delta\",\"partial_json\":{}}}}}\n\n\
+             event: content_block_delta\ndata: {{\"type\":\"content_block_delta\",\"index\":1,\"delta\":{{\"type\":\"input_json_delta\",\"partial_json\":{}}}}}\n\n\
+             event: message_delta\ndata: {{\"type\":\"message_delta\",\"delta\":{{\"stop_reason\":\"tool_use\"}},\"usage\":{{\"output_tokens\":7}}}}\n\n",
+            q(a),
+            q(b)
+        )
+    } else {
+        format!(
+            "data: {{\"model\":\"served-model\",\"choices\":[{{\"delta\":{{\"tool_calls\":[{{\"index\":0,\"id\":\"call_{n}\",\"type\":\"function\",\"function\":{{\"name\":\"{name}\",\"arguments\":{}}}}}]}}}}]}}\n\n\
+             data: {{\"model\":\"served-model\",\"choices\":[{{\"delta\":{{\"tool_calls\":[{{\"index\":0,\"function\":{{\"arguments\":{}}}}}]}},\"finish_reason\":\"tool_calls\"}}]}}\n\n\
+             data: {{\"model\":\"served-model\",\"choices\":[],\"usage\":{{\"prompt_tokens\":5,\"completion_tokens\":3}}}}\n\n\
+             data: [DONE]\n\n",
+            q(a),
+            q(b)
+        )
+    }
+}
+
 struct Mock {
     port: u16,
     hits: Arc<AtomicUsize>,
@@ -15,6 +47,11 @@ struct Mock {
 
 impl Mock {
     fn start(text: &'static str, status: u16) -> Mock {
+        Mock::start_with(text, status, Vec::new())
+    }
+
+    /// The nth request is answered by the nth step (the last repeats).
+    fn start_with(text: &'static str, status: u16, script: Vec<Step>) -> Mock {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let hits = Arc::new(AtomicUsize::new(0));
@@ -45,7 +82,8 @@ impl Mock {
                     }
                     assert!(n > 0, "request ended early");
                 };
-                h.fetch_add(1, Ordering::SeqCst);
+                let n = h.fetch_add(1, Ordering::SeqCst);
+                let step = script.get(n).or(script.last()).cloned();
                 let anthropic = head.starts_with("post /v1/messages");
                 s.lock().unwrap().push((head, body));
                 let out = if status != 200 {
@@ -53,9 +91,15 @@ impl Mock {
                         "HTTP/1.1 {status} Nope\r\ncontent-type: application/json\r\nconnection: close\r\n\r\n{{\"type\":\"error\",\"error\":{{\"type\":\"authentication_error\",\"message\":\"bad key\"}}}}"
                     )
                 } else {
-                    let (a, b) = text.split_at(text.len() / 2);
+                    let shown = match &step {
+                        Some(Step::Text(t)) => *t,
+                        _ => text,
+                    };
+                    let (a, b) = shown.split_at(shown.len() / 2);
                     let q = |s: &str| serde_json::to_string(s).unwrap();
-                    let events = if anthropic {
+                    let events = if let Some(Step::Call(name, args)) = &step {
+                        tool_events(anthropic, name, args, n)
+                    } else if anthropic {
                         format!(
                             "event: message_start\ndata: {{\"type\":\"message_start\",\"message\":{{\"model\":\"served-model\",\"usage\":{{\"input_tokens\":11}}}}}}\n\n\
                              event: ping\ndata: {{\"type\":\"ping\"}}\n\n\
@@ -88,6 +132,10 @@ impl Mock {
 
     fn hits(&self) -> usize {
         self.hits.load(Ordering::SeqCst)
+    }
+
+    fn nth(&self, i: usize) -> serde_json::Value {
+        serde_json::from_str(&self.seen.lock().unwrap()[i].1).unwrap()
     }
 
     fn last(&self) -> (String, serde_json::Value) {
@@ -595,4 +643,153 @@ fn stats_count_calls_hits_and_tokens_without_the_key() {
     std::fs::remove_file(&key).expect("the key file is next to the config");
     let (out, _, code) = env.run(&["stats", "--format", "{calls}"], "", &[]);
     assert_eq!((out.trim(), code), ("2", 0));
+}
+
+fn tool_names(body: &serde_json::Value) -> Vec<String> {
+    body["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| {
+            t["name"]
+                .as_str()
+                .or(t["function"]["name"].as_str())
+                .unwrap()
+                .to_string()
+        })
+        .collect()
+}
+
+#[test]
+fn agent_reads_files_with_tool_calls_on_both_wire_formats() {
+    for (anthropic, extra) in [(true, vec![]), (false, vec!["-p", "local"])] {
+        let mock = Mock::start_with(
+            "",
+            200,
+            vec![
+                Step::Call("read_file", r#"{"path":"notes.txt"}"#),
+                Step::Text("It says: heron."),
+            ],
+        );
+        let env = Env::new(if anthropic { "agent-a" } else { "agent-o" }, &mock);
+        std::fs::write(env.dir.join("work/notes.txt"), "heron nests\n").unwrap();
+        let mut args = extra.clone();
+        args.extend(["-a", "what does notes.txt say"]);
+        let (out, err, code) = env.run(&args, "", &[]);
+        assert_eq!((out.as_str(), code), ("It says: heron.\n", 0), "{err}");
+        assert!(
+            err.contains("read_file notes.txt"),
+            "progress on stderr: {err}"
+        );
+        assert_eq!(mock.hits(), 2);
+        assert_eq!(
+            tool_names(&mock.nth(0)),
+            ["read_file", "list_dir", "search"]
+        );
+
+        let m = mock.nth(1)["messages"].clone();
+        let m = m.as_array().unwrap();
+        if anthropic {
+            assert_eq!(m[1]["content"][0]["type"], "tool_use");
+            assert_eq!(m[1]["content"][0]["input"]["path"], "notes.txt");
+            assert_eq!(m[2]["content"][0]["type"], "tool_result");
+            assert_eq!(m[2]["content"][0]["tool_use_id"], "call_0");
+            assert!(
+                m[2]["content"][0]["content"]
+                    .as_str()
+                    .unwrap()
+                    .contains("1\theron nests")
+            );
+        } else {
+            // system, user, assistant (tool call), tool
+            let f = &m[2]["tool_calls"][0]["function"];
+            assert_eq!(f["name"], "read_file");
+            assert_eq!(f["arguments"], r#"{"path":"notes.txt"}"#);
+            assert_eq!(m[3]["role"], "tool");
+            assert_eq!(m[3]["tool_call_id"], "call_0");
+            assert!(m[3]["content"].as_str().unwrap().contains("1\theron nests"));
+        }
+        // the session is one recorded turn, in agent mode
+        let (list, _, _) = env.run(&["history"], "", &[]);
+        assert_eq!(list.lines().count(), 1, "{list}");
+    }
+}
+
+fn result_of_first_call(mock: &Mock) -> String {
+    let m = mock.nth(1)["messages"].clone();
+    m[2]["content"][0]["content"].as_str().unwrap().to_string()
+}
+
+#[test]
+fn agent_changes_files_and_runs_commands_only_when_allowed() {
+    let script = |name, args| vec![Step::Call(name, args), Step::Text("done")];
+    let write = r#"{"path":"out.txt","content":"hi"}"#;
+
+    let mock = Mock::start_with("", 200, script("write_file", write));
+    let env = Env::new("agent-write-off", &mock);
+    env.run(&["-a", "write it"], "", &[]);
+    assert!(!env.dir.join("work/out.txt").exists());
+    assert!(result_of_first_call(&mock).contains("not available"));
+
+    let mock = Mock::start_with("", 200, script("write_file", write));
+    let env = Env::new("agent-write-on", &mock);
+    env.run(&["-a", "--write", "write it"], "", &[]);
+    assert_eq!(
+        std::fs::read_to_string(env.dir.join("work/out.txt")).unwrap(),
+        "hi"
+    );
+    assert_eq!(
+        tool_names(&mock.nth(0)),
+        ["read_file", "list_dir", "search", "write_file", "replace"]
+    );
+
+    let mock = Mock::start_with(
+        "",
+        200,
+        script("replace", r#"{"path":"out.txt","old":"hi","new":"bye"}"#),
+    );
+    let env2 = Env::new("agent-replace", &mock);
+    std::fs::write(env2.dir.join("work/out.txt"), "hi there hi").unwrap();
+    env2.run(&["-a", "--write", "edit"], "", &[]);
+    assert!(result_of_first_call(&mock).contains("appears 2 times"));
+    assert_eq!(
+        std::fs::read_to_string(env2.dir.join("work/out.txt")).unwrap(),
+        "hi there hi"
+    );
+
+    let run = r#"{"command":"echo hi-from-run"}"#;
+    let mock = Mock::start_with("", 200, script("run_command", run));
+    let env = Env::new("agent-run-off", &mock);
+    env.run(&["-a", "go"], "", &[]);
+    assert!(result_of_first_call(&mock).contains("not available"));
+    let mock = Mock::start_with("", 200, script("run_command", run));
+    let env = Env::new("agent-run-on", &mock);
+    env.run(&["-a", "--run", "go"], "", &[]);
+    let r = result_of_first_call(&mock);
+    assert!(r.contains("hi-from-run") && r.contains("[exit 0]"), "{r}");
+
+    // --write and --run only make sense with --agent
+    let (_, err, code) = env.run(&["--write", "x"], "", &[]);
+    assert!(code != 0 && err.contains("--agent"), "{err}");
+}
+
+#[test]
+fn agent_stays_inside_the_working_directory_and_stops_after_its_step_limit() {
+    let mock = Mock::start_with(
+        "",
+        200,
+        vec![
+            Step::Call("read_file", r#"{"path":"../cfg/config.toml"}"#),
+            Step::Text("x"),
+        ],
+    );
+    let env = Env::new("agent-escape", &mock);
+    env.run(&["-a", "peek"], "", &[]);
+    assert!(result_of_first_call(&mock).contains("outside the working directory"));
+
+    let mock = Mock::start_with("", 200, vec![Step::Call("list_dir", "{}")]);
+    let env = Env::new("agent-loop", &mock);
+    let (_, err, code) = env.run(&["-a", "loop"], "", &[("ATCLAUDE_AGENT_STEPS", "3")]);
+    assert!(code != 0 && err.contains("stopped after 3 steps"), "{err}");
+    assert_eq!(mock.hits(), 3);
 }

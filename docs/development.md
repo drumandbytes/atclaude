@@ -18,12 +18,16 @@ Debug builds read `ATCLAUDE_DB` (the database path) so development and tests nev
 | File | |
 | :--- | :--- |
 | `src/main.rs` | Command line and the `ask` flow |
-| `src/provider.rs` | The two wire formats, streaming, retries, model and effort selection |
+| `src/provider.rs` | The two wire formats, streaming, tool calls, retries, model and effort selection |
 | `src/store.rs` | The history: schema, encryption, cache lookups, listing, deleting |
 | `src/key.rs` | The master key: file storage, 24-word form |
 | `src/keychain.rs` | The OS credential store, one backend per OS |
 | `src/config.rs` | Layered settings and `[providers.NAME]` tables |
-| `src/history.rs` | Browsing and deleting |
+| `src/history.rs` | Browsing, searching, deleting, size and age limits |
+| `src/context.rs` | Earlier turns from a directory's history, sent as context |
+| `src/curate.rs` | `history ask` and `history agent` (a model reads excerpts of the history) |
+| `src/agent.rs` | Agent mode: the tool loop and its tools |
+| `src/stats.rs` | `stats` output (reads the stats table, never the content) |
 | `scripts/install.sh` | The installer, attached to every release |
 | `packaging/` | Template for the Homebrew formula |
 

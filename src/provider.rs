@@ -50,12 +50,37 @@ pub struct Provider {
     api_key: Option<String>,
 }
 
+/// A function the model may call.
+pub struct Tool {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub schema: Value,
+}
+
+pub struct Call {
+    pub id: String,
+    pub name: String,
+    pub args: Value,
+}
+
+/// A step of a tool-using conversation, after the user's message.
+pub enum Msg {
+    Assistant {
+        text: String,
+        calls: Vec<Call>,
+    },
+    /// (call id, result text) for each call of the previous assistant step
+    Results(Vec<(String, String)>),
+}
+
 pub struct Request<'a> {
     pub model: &'a str,
     pub system: &'a str,
     pub user: &'a str,
     /// Earlier (user, assistant) turns, oldest first.
     pub history: &'a [(String, String)],
+    pub tools: &'a [Tool],
+    pub follow: &'a [Msg],
     pub effort: Option<&'a str>,
     pub max_tokens: Option<u64>,
 }
@@ -63,6 +88,9 @@ pub struct Request<'a> {
 #[derive(Default)]
 pub struct Reply {
     pub text: String,
+    pub calls: Vec<Call>,
+    /// (stream index, id, name, arguments so far) while a tool call is being streamed
+    pending: Vec<(u64, String, String, String)>,
     pub model: String,
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -250,6 +278,15 @@ impl Provider {
                 reply.text.push_str(&t);
             }
         }
+        reply.calls = reply
+            .pending
+            .drain(..)
+            .map(|(_, id, name, args)| Call {
+                id,
+                name,
+                args: serde_json::from_str(&args).unwrap_or_else(|_| json!({})),
+            })
+            .collect();
         Ok(reply)
     }
 
@@ -261,6 +298,13 @@ impl Provider {
             "system": req.system,
             "messages": messages(req, false),
         });
+        if !req.tools.is_empty() {
+            body["tools"] = req
+                .tools
+                .iter()
+                .map(|t| json!({"name": t.name, "description": t.description, "input_schema": t.schema}))
+                .collect();
+        }
         if let Some(e) = req.effort {
             body["output_config"] = json!({"effort": e});
         }
@@ -291,6 +335,41 @@ fn messages(req: &Request, system: bool) -> Value {
         m.push(json!({"role": "assistant", "content": a}));
     }
     m.push(json!({"role": "user", "content": req.user}));
+    for step in req.follow {
+        match (step, system) {
+            (Msg::Assistant { text, calls }, false) => {
+                let mut blocks = Vec::new();
+                if !text.is_empty() {
+                    blocks.push(json!({"type": "text", "text": text}));
+                }
+                for c in calls {
+                    blocks.push(
+                        json!({"type": "tool_use", "id": c.id, "name": c.name, "input": c.args}),
+                    );
+                }
+                m.push(json!({"role": "assistant", "content": blocks}));
+            }
+            (Msg::Results(rs), false) => {
+                let blocks: Vec<Value> = rs
+                    .iter()
+                    .map(|(id, out)| json!({"type": "tool_result", "tool_use_id": id, "content": out}))
+                    .collect();
+                m.push(json!({"role": "user", "content": blocks}));
+            }
+            (Msg::Assistant { text, calls }, true) => {
+                let calls: Vec<Value> = calls
+                    .iter()
+                    .map(|c| json!({"id": c.id, "type": "function", "function": {"name": c.name, "arguments": c.args.to_string()}}))
+                    .collect();
+                m.push(json!({"role": "assistant", "content": if text.is_empty() { Value::Null } else { json!(text) }, "tool_calls": calls}));
+            }
+            (Msg::Results(rs), true) => {
+                for (id, out) in rs {
+                    m.push(json!({"role": "tool", "tool_call_id": id, "content": out}));
+                }
+            }
+        }
+    }
     Value::Array(m)
 }
 
@@ -303,6 +382,13 @@ fn openai_body(req: &Request) -> Value {
     });
     if let Some(m) = req.max_tokens {
         body["max_tokens"] = json!(m);
+    }
+    if !req.tools.is_empty() {
+        body["tools"] = req
+            .tools
+            .iter()
+            .map(|t| json!({"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.schema}}))
+            .collect();
     }
     body
 }
@@ -323,6 +409,21 @@ fn anthropic_event(v: &Value, reply: &mut Reply) -> Result<Option<String>> {
             .iter()
             .filter_map(|k| u[*k].as_u64())
             .sum();
+        }
+        Some("content_block_start") if v["content_block"]["type"] == "tool_use" => {
+            let b = &v["content_block"];
+            reply.pending.push((
+                v["index"].as_u64().unwrap_or(0),
+                b["id"].as_str().unwrap_or_default().into(),
+                b["name"].as_str().unwrap_or_default().into(),
+                String::new(),
+            ));
+        }
+        Some("content_block_delta") if v["delta"]["type"] == "input_json_delta" => {
+            let i = v["index"].as_u64().unwrap_or(0);
+            if let Some(p) = reply.pending.iter_mut().find(|p| p.0 == i) {
+                p.3.push_str(v["delta"]["partial_json"].as_str().unwrap_or_default());
+            }
         }
         Some("content_block_delta") if v["delta"]["type"] == "text_delta" => {
             return Ok(v["delta"]["text"].as_str().map(str::to_owned));
@@ -358,6 +459,30 @@ fn openai_event(v: &Value, reply: &mut Reply) -> Result<Option<String>> {
     let choice = &v["choices"][0];
     if let Some(s) = choice["finish_reason"].as_str() {
         reply.stop = s.to_string();
+    }
+    for tc in choice["delta"]["tool_calls"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        let i = tc["index"].as_u64().unwrap_or(0);
+        let at = match reply.pending.iter().position(|p| p.0 == i) {
+            Some(at) => at,
+            None => {
+                reply
+                    .pending
+                    .push((i, String::new(), String::new(), String::new()));
+                reply.pending.len() - 1
+            }
+        };
+        let p = &mut reply.pending[at];
+        if let Some(id) = tc["id"].as_str() {
+            p.1 = id.into();
+        }
+        if let Some(name) = tc["function"]["name"].as_str() {
+            p.2 = name.into();
+        }
+        p.3.push_str(tc["function"]["arguments"].as_str().unwrap_or_default());
     }
     Ok(choice["delta"]["content"].as_str().map(str::to_owned))
 }

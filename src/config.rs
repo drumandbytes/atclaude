@@ -33,6 +33,7 @@ pub const KEYS: &[(&str, Ty)] = &[
     ("history_scan", Ty::Num),
     ("excerpt_prompt", Ty::Num),
     ("excerpt_reply", Ty::Num),
+    ("agent_steps", Ty::Num),
     ("keychain", Ty::Bool),
     ("prompt_pipe", Ty::Str),
     ("prompt_interactive", Ty::Str),
