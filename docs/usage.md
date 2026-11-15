@@ -44,6 +44,19 @@ By default the cache is used for piped calls (`cache = "pipe"`), where repeating
 
 A call can only be served from history if it was recorded, so `record = false` and `--no-record` calls never become cache entries.
 
+## Context
+
+Models have no memory between calls. `-c` (`--context`) sends the most recent turns from your history in this directory along with the new question, so a follow-up knows what came before:
+
+```bash
+atclaude "what does SIGPIPE do?"
+atclaude -c "and how do I ignore it in Rust?"
+```
+
+The context comes from your own history, not from a provider's session, so it works with any provider and survives a switch of model. Only turns from the current directory are used, oldest first, and long turns are cut. Set `context = 5` (a number of turns) to include it on every call and `--no-context` to leave it out once. `context_chars` (default 16000) caps its size; the oldest turns are dropped first. Calls made with `--no-record` are not in the history, so they are never part of a context.
+
+A call with context is cached separately from the same question without it.
+
 ## Recording
 
 Every successful call is saved to the [history](history.md) after its output has been written. `--no-record` skips it for one call; `record = false` (or `ATCLAUDE_RECORD=0`) turns it off for a directory or everywhere, and `--record` overrides that for one call.
@@ -59,6 +72,8 @@ Every successful call is saved to the [history](history.md) after its output has
 | `-p`, `--provider NAME` | Provider for this call |
 | `-f`, `--fast` / `-d`, `--deep` | Tier |
 | `-m`, `--model NAME` | Exact model |
+| `-c`, `--context` | Include earlier turns from this directory |
+| `--no-context` | Send no earlier turns, even if `context` is set |
 | `--no-cache` | Skip the history cache |
 | `--record` / `--no-record` | Save or don't save this call |
 

@@ -54,6 +54,8 @@ pub struct Request<'a> {
     pub model: &'a str,
     pub system: &'a str,
     pub user: &'a str,
+    /// Earlier (user, assistant) turns, oldest first.
+    pub history: &'a [(String, String)],
     pub effort: Option<&'a str>,
     pub max_tokens: Option<u64>,
 }
@@ -257,7 +259,7 @@ impl Provider {
             "max_tokens": req.max_tokens.unwrap_or(64_000),
             "stream": true,
             "system": req.system,
-            "messages": [{"role": "user", "content": req.user}],
+            "messages": messages(req, false),
         });
         if let Some(e) = req.effort {
             body["output_config"] = json!({"effort": e});
@@ -278,12 +280,26 @@ impl Provider {
     }
 }
 
+/// Past turns, then the new message; OpenAI-style APIs also carry the system prompt as a message.
+fn messages(req: &Request, system: bool) -> Value {
+    let mut m = Vec::new();
+    if system {
+        m.push(json!({"role": "system", "content": req.system}));
+    }
+    for (u, a) in req.history {
+        m.push(json!({"role": "user", "content": u}));
+        m.push(json!({"role": "assistant", "content": a}));
+    }
+    m.push(json!({"role": "user", "content": req.user}));
+    Value::Array(m)
+}
+
 fn openai_body(req: &Request) -> Value {
     let mut body = json!({
         "model": req.model,
         "stream": true,
         "stream_options": {"include_usage": true},
-        "messages": [{"role": "system", "content": req.system}, {"role": "user", "content": req.user}],
+        "messages": messages(req, true),
     });
     if let Some(m) = req.max_tokens {
         body["max_tokens"] = json!(m);

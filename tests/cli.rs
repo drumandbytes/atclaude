@@ -307,3 +307,90 @@ fn key_backup_rotation_and_import() {
             .contains("secret answer")
     );
 }
+
+#[test]
+fn context_comes_from_history_of_this_directory() {
+    let mock = Mock::start("answer", 200);
+    let env = Env::new("context", &mock);
+    let args = |extra: &'static str, q: &'static str| {
+        let mut v = vec!["-p", "local"];
+        if !extra.is_empty() {
+            v.push(extra);
+        }
+        v.push(q);
+        v
+    };
+
+    env.run(&args("", "first question"), "", &[]);
+    // off by default: no earlier turns are sent
+    env.run(&args("", "second question"), "", &[]);
+    assert_eq!(mock.last().1["messages"].as_array().unwrap().len(), 2);
+
+    // -c sends the earlier turns, oldest first, between the system prompt and the new message
+    env.run(&args("-c", "third question"), "", &[]);
+    let m = mock.last().1["messages"].clone();
+    let roles: Vec<_> = m
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["role"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        roles,
+        ["system", "user", "assistant", "user", "assistant", "user"]
+    );
+    assert_eq!(m[1]["content"], "first question");
+    assert_eq!(m[2]["content"], "answer");
+    assert_eq!(m[5]["content"], "third question");
+
+    // the cache key covers the context: without it, or with a longer history, it is a new call
+    let hits = mock.hits();
+    env.run(&args("", "third question"), "", &[]);
+    assert_eq!(mock.hits(), hits + 1);
+    env.run(&args("", "third question"), "", &[]);
+    assert_eq!(mock.hits(), hits + 1, "same call, same context: cached");
+    env.run(&args("-c", "third question"), "", &[]);
+    assert_eq!(
+        mock.hits(),
+        hits + 2,
+        "the history grew, so the context differs"
+    );
+
+    // the `context` setting sets how many turns -c sends, and turns it on by itself
+    env.run(
+        &args("-c", "fourth question"),
+        "",
+        &[("ATCLAUDE_CONTEXT", "1")],
+    );
+    assert_eq!(mock.last().1["messages"].as_array().unwrap().len(), 4);
+    env.run(
+        &args("", "fifth question"),
+        "",
+        &[("ATCLAUDE_CONTEXT", "1")],
+    );
+    assert_eq!(mock.last().1["messages"].as_array().unwrap().len(), 4);
+    env.run(
+        &args("--no-context", "sixth"),
+        "",
+        &[("ATCLAUDE_CONTEXT", "1")],
+    );
+    assert_eq!(mock.last().1["messages"].as_array().unwrap().len(), 2);
+
+    // another directory has its own history; anthropic carries history in `messages` too
+    std::fs::create_dir_all(env.dir.join("work/other")).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_atclaude"))
+        .args(["-c", "seventh question"])
+        .current_dir(env.dir.join("work/other"))
+        .env_clear()
+        .env("HOME", &env.dir)
+        .env("ATCLAUDE_CONFIG", env.dir.join("cfg/config.toml"))
+        .env("ATCLAUDE_DB", env.db())
+        .env("ANTHROPIC_API_KEY", "test-key")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let body = mock.last().1;
+    assert_eq!(body["messages"].as_array().unwrap().len(), 1);
+    assert_eq!(body["messages"][0]["content"], "seventh question");
+}

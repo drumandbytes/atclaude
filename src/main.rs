@@ -9,6 +9,7 @@ use std::time::Instant;
 use store::{Content, Meta, Store};
 
 mod config;
+mod context;
 mod history;
 mod key;
 mod keychain;
@@ -43,6 +44,14 @@ struct Cli {
     /// An exact model name
     #[arg(short, long)]
     model: Option<String>,
+
+    /// Include earlier turns from this directory (`context` setting turns, default 5)
+    #[arg(short = 'c', long, conflicts_with = "no_context")]
+    context: bool,
+
+    /// Send no earlier turns, even if the `context` setting is on
+    #[arg(long)]
+    no_context: bool,
 
     /// Call the model even if an identical call is in the history
     #[arg(long)]
@@ -186,10 +195,27 @@ fn ask(cli: &Cli, cfg: &Config, keychain: bool) -> Result<()> {
 
     let cwd = std::env::current_dir()?;
     let dir = store::dir_hash(&cwd);
-    let store = if record || use_cache {
+    let setting = cfg.num("context").unwrap_or(0) as usize;
+    let ctx_turns = if cli.no_context {
+        0
+    } else if cli.context {
+        if setting > 0 { setting } else { 5 }
+    } else {
+        setting
+    };
+    let store = if record || use_cache || ctx_turns > 0 {
         Some(Store::open(keychain)?)
     } else {
         None
+    };
+    let history = match &store {
+        Some(s) if ctx_turns > 0 => context::build(
+            s,
+            &dir,
+            ctx_turns,
+            cfg.num("context_chars").unwrap_or(16_000) as usize,
+        )?,
+        _ => Vec::new(),
     };
     let cache_key = store
         .as_ref()
@@ -199,6 +225,7 @@ fn ask(cli: &Cli, cfg: &Config, keychain: bool) -> Result<()> {
                 &model,
                 &system,
                 &user,
+                &serde_json::json!(history).to_string(),
                 effort.as_deref().unwrap_or(""),
                 &max_tokens.map(|m| m.to_string()).unwrap_or_default(),
             ])
@@ -218,6 +245,7 @@ fn ask(cli: &Cli, cfg: &Config, keychain: bool) -> Result<()> {
         model: &model,
         system: &system,
         user: &user,
+        history: &history,
         effort: effort.as_deref(),
         max_tokens,
     };

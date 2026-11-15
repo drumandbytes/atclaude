@@ -44,6 +44,7 @@ cmd | atclaude "instruction" | cmd2    # a pipeline step
 atclaude -f "..."                      # fast tier
 atclaude -d "..."                      # reasoning tier
 atclaude -p local "..."                # a configured provider
+atclaude -c "..."                     # include earlier turns from this directory
 atclaude --no-cache "..."              # ask again even if the call is in your history
 atclaude --no-record "..."             # don't save this call
 
@@ -70,7 +71,7 @@ More in [Usage](docs/usage.md) and [History](docs/history.md).
 atclaude is beta software.
 
 - macOS and Linux are tested. Windows is untested.
-- Planned, not yet available: context assembled from your history, plain-language search of it, usage and cost statistics with prompt integration, size-based retention, and an agent mode.
+- Planned, not yet available: plain-language search of it, usage and cost statistics with prompt integration, size-based retention, and an agent mode.
 
 ## License
 

@@ -24,6 +24,8 @@ pub const KEYS: &[(&str, Ty)] = &[
     ("record", Ty::Bool),
     ("cache", Ty::Str),
     ("cache_ttl", Ty::Str),
+    ("context", Ty::Num),
+    ("context_chars", Ty::Num),
     ("keychain", Ty::Bool),
     ("prompt_pipe", Ty::Str),
     ("prompt_interactive", Ty::Str),

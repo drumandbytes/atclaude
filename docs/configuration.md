@@ -60,6 +60,8 @@ API keys are read from the environment and are never written to the history or t
 | `max_tokens` | Anthropic: 64000, others: the provider's | Output limit |
 | `record` | `true` | Save calls to the history |
 | `cache` | `pipe` | When identical calls are answered from history: `pipe`, `always`, `off` |
+| `context` | `0` | Earlier turns from this directory sent with every call; `-c` uses it, or 5 when unset |
+| `context_chars` | `16000` | Size cap for that context (characters; oldest turns are dropped first) |
 | `cache_ttl` | `7d` | How long a history entry can answer a call (`12h`, `3d`, `2w`, `1m`) |
 | `keychain` | `false` | Keep the history key in the OS credential store instead of a file ([History](history.md#where-the-key-lives)) |
 | `prompt_pipe`, `prompt_interactive` | see below | The system prompts |
