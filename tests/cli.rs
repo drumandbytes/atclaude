@@ -394,3 +394,147 @@ fn context_comes_from_history_of_this_directory() {
     assert_eq!(body["messages"].as_array().unwrap().len(), 1);
     assert_eq!(body["messages"][0]["content"], "seventh question");
 }
+
+#[test]
+fn search_finds_words_across_prompt_input_and_answer() {
+    let mock = Mock::start("the answer", 200);
+    let env = Env::new("search", &mock);
+    env.run(&["tell me about herons"], "", &[]);
+    env.run(&["summarise"], "kestrel nests in barns\nsecond line", &[]);
+    let (out, _, _) = env.run(&["history", "search", "KESTREL"], "", &[]);
+    assert!(
+        out.contains("summarise") && out.contains("kestrel nests in barns"),
+        "{out}"
+    );
+    assert!(!out.contains("herons"));
+    let (out, _, _) = env.run(&["history", "search", "answer", "heron"], "", &[]);
+    assert!(
+        out.contains("herons") && !out.contains("summarise"),
+        "{out}"
+    );
+    let (out, _, _) = env.run(&["history", "search", "nothing-like-this"], "", &[]);
+    assert_eq!(out.trim(), "nothing matches");
+}
+
+#[test]
+fn history_stays_within_its_size_limit() {
+    let mock = Mock::start("ok", 200);
+    let env = Env::new("limits", &mock);
+    // varied text so it does not compress to nothing
+    let blob = |seed: u64| -> String {
+        let mut x = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        (0..6000)
+            .map(|_| {
+                x = x
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                char::from(b'a' + (x >> 59) as u8)
+            })
+            .collect()
+    };
+    for i in 1..=5 {
+        env.run(
+            &[&format!("q{i}")],
+            &blob(i),
+            &[("ATCLAUDE_MAX_SIZE", "8k")],
+        );
+    }
+    let (list, _, _) = env.run(&["history"], "", &[]);
+    let n = list.lines().count();
+    assert!((1..5).contains(&n), "{list}");
+    assert!(list.contains("q5"), "the newest turn is kept:\n{list}");
+    assert!(
+        !list.contains("q1\n") && !list.lines().any(|l| l.ends_with("q1")),
+        "{list}"
+    );
+
+    // `history clean` applies the limits to an existing history
+    let (out, _, code) = env.run(
+        &["history", "clean", "--yes"],
+        "",
+        &[("ATCLAUDE_MAX_SIZE", "1k")],
+    );
+    assert_eq!(code, 0, "{out}");
+    let (list, _, _) = env.run(&["history"], "", &[]);
+    assert!(list.lines().count() < n, "{list}");
+}
+
+#[test]
+fn history_agent_deletes_only_what_the_model_names_and_only_when_confirmed() {
+    let mock = Mock::start("[1]", 200);
+    let env = Env::new("agent", &mock);
+    env.run(&["-p", "local", "first"], "", &[]);
+    env.run(&["-p", "local", "second"], "", &[]);
+
+    // without a terminal, confirmation must be explicit
+    let (_, err, code) = env.run(
+        &["history", "agent", "drop the first"],
+        "",
+        &[("ATCLAUDE_PROVIDER", "local")],
+    );
+    assert!(code != 0 && err.contains("--yes"), "{err}");
+    assert_eq!(env.run(&["history"], "", &[]).0.lines().count(), 2);
+    let (out, err, code) = env.run(
+        &["history", "agent", "--yes", "drop the first"],
+        "",
+        &[("ATCLAUDE_PROVIDER", "local")],
+    );
+    assert_eq!(code, 0, "{out}{err}");
+    assert!(out.contains("deleted 1"), "{out}");
+    let (list, _, _) = env.run(&["history"], "", &[]);
+    assert!(list.contains("second") && !list.contains("first"), "{list}");
+    // the request carried excerpts and the instruction, with ids
+    let body = mock.last().1;
+    let user = body["messages"][1]["content"].as_str().unwrap();
+    assert!(
+        user.contains("Q: first") && user.contains("Instruction: drop the first"),
+        "{user}"
+    );
+}
+
+#[test]
+fn history_ask_sends_excerpts_and_prints_the_answer() {
+    let mock = Mock::start("see #1", 200);
+    let env = Env::new("ask", &mock);
+    env.run(&["-p", "local", "how do herons fish"], "", &[]);
+    let (out, err, code) = env.run(
+        &["history", "ask", "what did I ask about birds?"],
+        "",
+        &[("ATCLAUDE_PROVIDER", "local")],
+    );
+    assert_eq!((out.as_str(), code), ("see #1\n", 0), "{err}");
+    let user = mock.last().1["messages"][1]["content"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        user.contains("how do herons fish") && user.contains("Question: what did I ask"),
+        "{user}"
+    );
+    // the question itself is not added to the history
+    let (list, _, _) = env.run(&["history"], "", &[]);
+    assert_eq!(list.lines().count(), 1, "{list}");
+}
+
+#[test]
+fn size_rules_pick_the_tier() {
+    let mock = Mock::start("ok", 200);
+    let env = Env::new("tier", &mock);
+    let model = || mock.last().1["model"].as_str().unwrap().to_string();
+    let rules = [("ATCLAUDE_FAST_UNDER", "20"), ("ATCLAUDE_DEEP_OVER", "60")];
+    env.run(&["short"], "", &rules);
+    assert_eq!(model(), "claude-haiku-5-5");
+    env.run(&["a medium length question here"], "", &rules);
+    assert_eq!(model(), "claude-sonnet-5-5");
+    env.run(
+        &["a very long question that goes well beyond the sixty characters"],
+        "",
+        &rules,
+    );
+    assert_eq!(model(), "claude-opus-5-5");
+    // explicit choices win
+    env.run(&["-d", "short"], "", &rules);
+    assert_eq!(model(), "claude-opus-5-5");
+    env.run(&["-m", "custom-x", "short"], "", &rules);
+    assert_eq!(model(), "custom-x");
+}

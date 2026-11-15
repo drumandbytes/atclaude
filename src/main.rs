@@ -10,6 +10,7 @@ use store::{Content, Meta, Store};
 
 mod config;
 mod context;
+mod curate;
 mod history;
 mod key;
 mod keychain;
@@ -91,6 +92,34 @@ enum Cmd {
 enum HistoryCmd {
     /// Print one turn
     Show { id: i64 },
+    /// Turns containing all of these words, with the matching line
+    Search {
+        #[arg(required = true)]
+        words: Vec<String>,
+        #[command(flatten)]
+        filter: history::FilterArgs,
+    },
+    /// Ask a question about your history; a fast model reads excerpts of recent turns
+    Ask {
+        question: String,
+        #[command(flatten)]
+        filter: history::FilterArgs,
+    },
+    /// Let a model propose turns to delete from an instruction (asks before deleting)
+    Agent {
+        instruction: String,
+        #[command(flatten)]
+        filter: history::FilterArgs,
+        /// Skip the confirmation
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Apply the `max_size` and `max_age` limits now and shrink the file
+    Clean {
+        /// Skip the confirmation
+        #[arg(long)]
+        yes: bool,
+    },
     /// Delete turns by id or filter (asks first)
     Rm {
         ids: Vec<i64>,
@@ -138,6 +167,27 @@ fn run() -> Result<()> {
             action: Some(HistoryCmd::Rm { ids, filter, yes }),
             ..
         }) => history::rm(&Store::open(keychain)?, ids, filter, *yes),
+        Some(Cmd::History {
+            action: Some(HistoryCmd::Search { words, filter }),
+            ..
+        }) => history::search(&Store::open(keychain)?, filter, words),
+        Some(Cmd::History {
+            action: Some(HistoryCmd::Ask { question, filter }),
+            ..
+        }) => curate::ask(&Store::open(keychain)?, &cfg, filter, question),
+        Some(Cmd::History {
+            action:
+                Some(HistoryCmd::Agent {
+                    instruction,
+                    filter,
+                    yes,
+                }),
+            ..
+        }) => curate::agent(&Store::open(keychain)?, &cfg, filter, instruction, *yes),
+        Some(Cmd::History {
+            action: Some(HistoryCmd::Clean { yes }),
+            ..
+        }) => history::clean(&Store::open(keychain)?, &cfg, *yes),
         None => ask(&cli, &cfg, keychain),
     }
 }
@@ -165,9 +215,16 @@ fn ask(cli: &Cli, cfg: &Config, keychain: bool) -> Result<()> {
     };
 
     let provider = Provider::resolve(cfg, cli.provider.as_deref())?;
+    let size = combine(&instruction, &payload).chars().count() as u64;
     let tier = if cli.fast {
         Tier::Fast
     } else if cli.deep {
+        Tier::Deep
+    } else if cli.model.is_some() {
+        Tier::Regular
+    } else if size < cfg.num("fast_under").unwrap_or(0) {
+        Tier::Fast
+    } else if cfg.num("deep_over").is_some_and(|n| size > n) {
         Tier::Deep
     } else {
         Tier::Regular
@@ -308,6 +365,8 @@ fn ask(cli: &Cli, cfg: &Config, keychain: bool) -> Result<()> {
         };
         if let Err(e) = s.record(&meta, &content) {
             eprintln!("[atclaude] history not saved: {e:#}");
+        } else {
+            history::enforce_limits(s, cfg);
         }
     }
     Ok(())

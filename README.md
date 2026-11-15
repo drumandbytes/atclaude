@@ -49,6 +49,8 @@ atclaude --no-cache "..."              # ask again even if the call is in your h
 atclaude --no-record "..."             # don't save this call
 
 atclaude history                       # browse everything you asked (fzf when available)
+atclaude history search kestrel        # find turns by words in prompt, input or answer
+atclaude history ask "what did I ask about TLS?"   # a fast model answers from your history
 atclaude history rm --older 90d        # delete by age (asks first)
 atclaude key show                      # your history key as 24 words
 atclaude config                        # every setting and where its value comes from
@@ -71,7 +73,7 @@ More in [Usage](docs/usage.md) and [History](docs/history.md).
 atclaude is beta software.
 
 - macOS and Linux are tested. Windows is untested.
-- Planned, not yet available: plain-language search of it, usage and cost statistics with prompt integration, size-based retention, and an agent mode.
+- Planned, not yet available: usage and cost statistics with prompt integration, and an agent mode.
 
 ## License
 

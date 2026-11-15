@@ -36,6 +36,8 @@ Things to know when chaining:
 
 Other providers have no built-in models: set `model` (and optionally `fast_model` and `deep_model`) for the provider. A provider with only `model` set uses it for every tier. See [Configuration](configuration.md).
 
+Without a flag, the regular tier is used. To choose by the size of the call instead, set `fast_under` (calls with fewer characters than this use the fast tier) and `deep_over` (calls with more use the deep tier). `-f`, `-d` and `-m` always win. The rule counts the instruction plus the piped input, so a short question about a large file goes to the regular or deep tier.
+
 ## Caching
 
 A call identical to one already in your history is answered from the history, with no network request and no cost. "Identical" means the same provider, model, system prompt, instruction, input, effort and token limit. Entries expire after `cache_ttl` (default 7 days).

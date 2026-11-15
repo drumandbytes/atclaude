@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::store::{Filter, Store, Turn, dir_hash};
 use anyhow::{Result, anyhow, bail};
 use clap::Args;
@@ -52,7 +53,7 @@ pub fn age_secs(s: &str) -> Result<i64> {
     })
 }
 
-fn oneline(s: &str, max: usize) -> String {
+pub fn oneline(s: &str, max: usize) -> String {
     s.split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
@@ -61,7 +62,7 @@ fn oneline(s: &str, max: usize) -> String {
         .collect()
 }
 
-fn label(t: &Turn) -> String {
+pub fn label(t: &Turn) -> String {
     if t.content.instruction.is_empty() {
         format!("(stdin) {}", oneline(&t.content.payload, 100))
     } else {
@@ -154,7 +155,7 @@ pub fn show(store: &Store, id: i64) -> Result<()> {
     Ok(())
 }
 
-fn confirm(question: &str, yes: bool) -> Result<bool> {
+pub fn confirm(question: &str, yes: bool) -> Result<bool> {
     if yes {
         return Ok(true);
     }
@@ -202,6 +203,110 @@ pub fn rm(store: &Store, ids: &[i64], f: &FilterArgs, yes: bool) -> Result<()> {
     Ok(())
 }
 
+/// "500m", "2g", "100k" or plain bytes.
+pub fn size_bytes(s: &str) -> Result<u64> {
+    let bad = || anyhow!("bad size {s:?}; use e.g. 100k, 500m, 2g");
+    let t = s.trim().to_lowercase();
+    let (n, mult) = match t.chars().last() {
+        Some('k') => (&t[..t.len() - 1], 1u64 << 10),
+        Some('m') => (&t[..t.len() - 1], 1 << 20),
+        Some('g') => (&t[..t.len() - 1], 1 << 30),
+        _ => (t.as_str(), 1),
+    };
+    n.trim().parse::<u64>().map(|n| n * mult).map_err(|_| bad())
+}
+
+const DEFAULT_MAX_SIZE: &str = "500m";
+
+/// Turns that the `max_size` / `max_age` settings say to drop.
+fn expired(store: &Store, cfg: &Config) -> Result<Vec<i64>> {
+    let max = size_bytes(&cfg.str("max_size").unwrap_or(DEFAULT_MAX_SIZE.into()))?;
+    let age = cfg.str("max_age").map(|a| age_secs(&a)).transpose()?;
+    store.over_limits(max, age)
+}
+
+/// Runs after each recorded call; a few milliseconds while the history is within its limits.
+// NOTE: inline, not a background process; move it out if a very large history makes this slow.
+pub fn enforce_limits(store: &Store, cfg: &Config) {
+    match expired(store, cfg).and_then(|ids| {
+        if ids.is_empty() {
+            Ok(0)
+        } else {
+            store.delete(&ids)
+        }
+    }) {
+        Ok(0) => {}
+        Ok(n) => eprintln!("[atclaude] history over its limit: removed the {n} oldest turn(s)"),
+        Err(e) => eprintln!("[atclaude] history limits not applied: {e:#}"),
+    }
+}
+
+/// `history clean`: apply the limits now and shrink the file.
+pub fn clean(store: &Store, cfg: &Config, yes: bool) -> Result<()> {
+    let ids = expired(store, cfg)?;
+    println!(
+        "history holds {} of content; limits: max_size {}, max_age {}",
+        human(store.content_bytes()?),
+        cfg.str("max_size").unwrap_or(DEFAULT_MAX_SIZE.into()),
+        cfg.str("max_age").unwrap_or("none".into())
+    );
+    if !ids.is_empty()
+        && confirm(
+            &format!(
+                "Delete the {} oldest turn(s) to fit? This cannot be undone.",
+                ids.len()
+            ),
+            yes,
+        )?
+    {
+        println!("deleted {}", store.delete(&ids)?);
+    }
+    store.compact()?;
+    println!("now {}", human(store.content_bytes()?));
+    Ok(())
+}
+
+fn human(n: u64) -> String {
+    match n {
+        n if n >= 1 << 30 => format!("{:.1} GB", n as f64 / (1u64 << 30) as f64),
+        n if n >= 1 << 20 => format!("{:.1} MB", n as f64 / (1u64 << 20) as f64),
+        n => format!("{:.1} KB", n as f64 / 1024.0),
+    }
+}
+
+/// Turns containing every word (any case), newest first, each with the first matching line.
+pub fn search(store: &Store, f: &FilterArgs, words: &[String]) -> Result<()> {
+    let terms: Vec<String> = words.iter().map(|w| w.to_lowercase()).collect();
+    // NOTE: decrypts the whole filtered history per search; add an index if that gets slow.
+    let mut shown = 0;
+    for t in store.list(&f.filter()?, 1_000_000)? {
+        let c = &t.content;
+        let all = format!("{}\n{}\n{}", c.instruction, c.payload, c.response).to_lowercase();
+        if !terms.iter().all(|w| all.contains(w)) {
+            continue;
+        }
+        println!(
+            "{}\t{}\t{}\t{}",
+            t.id,
+            t.when,
+            c.repo.as_deref().unwrap_or("-"),
+            label(&t)
+        );
+        let hit = [&c.instruction, &c.payload, &c.response]
+            .into_iter()
+            .flat_map(|s| s.lines())
+            .find(|l| l.to_lowercase().contains(&terms[0]));
+        if let Some(l) = hit {
+            println!("\t\t{}", oneline(l, 120));
+        }
+        shown += 1;
+    }
+    if shown == 0 {
+        println!("nothing matches");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,6 +315,9 @@ mod tests {
     fn ages() {
         assert_eq!(age_secs("2w").unwrap(), 14 * 86_400);
         assert_eq!(age_secs("12h").unwrap(), 43_200);
+        assert_eq!(size_bytes("2k").unwrap(), 2048);
+        assert_eq!(size_bytes("1G").unwrap(), 1 << 30);
+        assert!(size_bytes("x").is_err() && size_bytes("").is_err());
         assert!(age_secs("").is_err() && age_secs("d").is_err() && age_secs("3x").is_err());
     }
 }

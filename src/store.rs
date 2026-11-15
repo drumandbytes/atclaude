@@ -322,6 +322,40 @@ impl Store {
         Ok(out)
     }
 
+    /// Ids to delete so the history fits `max_bytes` of stored content and `max_age` seconds,
+    /// oldest first.
+    pub fn over_limits(&self, max_bytes: u64, max_age: Option<i64>) -> Result<Vec<i64>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, length(content), (?1 IS NOT NULL AND ts < unixepoch() - ?1) FROM turns ORDER BY ts, id",
+        )?;
+        let rows: Vec<(i64, i64, bool)> = stmt
+            .query_map(params![max_age], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut total: i64 = rows.iter().map(|r| r.1).sum();
+        let mut doomed = Vec::new();
+        for (id, len, expired) in rows {
+            if expired || total > max_bytes as i64 {
+                doomed.push(id);
+                total -= len;
+            }
+        }
+        Ok(doomed)
+    }
+
+    pub fn content_bytes(&self) -> Result<u64> {
+        Ok(self.conn.query_row(
+            "SELECT COALESCE(SUM(length(content)), 0) FROM turns",
+            [],
+            |r| r.get::<_, i64>(0),
+        )? as u64)
+    }
+
+    /// Give freed space back to the file system.
+    pub fn compact(&self) -> Result<()> {
+        self.conn.execute_batch("VACUUM")?;
+        Ok(())
+    }
+
     pub fn delete(&self, ids: &[i64]) -> Result<usize> {
         let tx = self.conn.unchecked_transaction()?;
         let mut n = 0;

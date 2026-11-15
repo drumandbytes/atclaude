@@ -58,6 +58,15 @@ atclaude history show 42
 
 Without fzf, or when output is piped, it prints a plain list. Filters: `--since 12h|3d|2w|1m`, `--older ...`, `--here` (current directory).
 
+## Searching
+
+```bash
+atclaude history search kestrel nest      # turns containing every word, any case, in the prompt, input or answer
+atclaude history ask "what did I ask about TLS last month?"
+```
+
+`search` is plain text matching and makes no network call. `ask` sends excerpts of your most recent turns to the fast model and prints its answer, so those excerpts leave your machine like any other prompt. The excerpt size and how many turns are scanned are settings (`excerpt_prompt`, `excerpt_reply`, `history_scan`). Neither command is recorded in the history. Filters (`--since`, `--older`, `--here`) narrow what is searched.
+
 ## Deleting
 
 Deleting asks first. `--yes` skips the question, and without a terminal `--yes` is required.
@@ -66,4 +75,20 @@ Deleting asks first. `--yes` skips the question, and without a terminal `--yes` 
 atclaude history rm 12 13                 # by id
 atclaude history rm --older 90d           # by filter (a filter is required)
 atclaude history rm --here --since 1d     # everything from this directory today
+```
+
+By instruction, with a model proposing what to delete:
+
+```bash
+atclaude history agent "remove the throwaway test questions from last week"
+```
+
+The model sees the same excerpts as `ask` and returns turn ids. You see the list and confirm before anything is deleted, and only ids that were offered to the model are ever deleted.
+
+## Size and age limits
+
+The history keeps itself within `max_size` (default `500m` of stored content, measured after compression and encryption). When a call pushes it over, the oldest turns are removed first and a line on stderr says so. `max_age` (for example `52w`) additionally drops anything older. Raise or remove the limits in your configuration if you want a longer history; the defaults keep it from growing without bound.
+
+```bash
+atclaude history clean        # apply the limits now and shrink the file (asks first)
 ```

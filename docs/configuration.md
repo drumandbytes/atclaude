@@ -63,6 +63,12 @@ API keys are read from the environment and are never written to the history or t
 | `context` | `0` | Earlier turns from this directory sent with every call; `-c` uses it, or 5 when unset |
 | `context_chars` | `16000` | Size cap for that context (characters; oldest turns are dropped first) |
 | `cache_ttl` | `7d` | How long a history entry can answer a call (`12h`, `3d`, `2w`, `1m`) |
+| `max_size` | `500m` | Size limit for the history's stored content (`100k`, `500m`, `2g`); the oldest turns go first |
+| `max_age` | none | Also drop turns older than this (`90d`, `52w`) |
+| `fast_under` | `0` (off) | Calls with fewer characters than this use the fast tier unless a tier or model is given |
+| `deep_over` | none | Calls with more characters than this use the deep tier unless a tier or model is given |
+| `history_scan` | `200` | Newest turns that `history ask` and `history agent` read |
+| `excerpt_prompt` / `excerpt_reply` | `200` / `400` | Characters of each prompt and answer sent for `history ask` and `history agent` |
 | `keychain` | `false` | Keep the history key in the OS credential store instead of a file ([History](history.md#where-the-key-lives)) |
 | `prompt_pipe`, `prompt_interactive` | see below | The system prompts |
 
