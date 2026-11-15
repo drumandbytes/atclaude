@@ -81,25 +81,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
-name = "atclaude"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bip39",
- "blake3",
- "chacha20poly1305",
- "clap",
- "directories",
- "getrandom 0.4.3",
- "keyring",
- "rusqlite",
- "serde_json",
- "toml",
- "ureq",
- "zstd",
-]
-
-[[package]]
 name = "base64"
 version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -797,6 +778,25 @@ name = "powerfmt"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a6394b9e965e73d0a289ee54f589087e2c676aedf60885baf52c76b771e4958"
+
+[[package]]
+name = "prinia"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bip39",
+ "blake3",
+ "chacha20poly1305",
+ "clap",
+ "directories",
+ "getrandom 0.4.3",
+ "keyring",
+ "rusqlite",
+ "serde_json",
+ "toml",
+ "ureq",
+ "zstd",
+]
 
 [[package]]
 name = "proc-macro2"

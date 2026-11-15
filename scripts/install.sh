@@ -1,13 +1,13 @@
 #!/bin/sh
-# Installs atclaude from its latest GitHub release.
-#   curl -fsSL https://github.com/drumandbytes/atclaude/releases/latest/download/install.sh | sh
-# ATCLAUDE_VERSION=v0.1.0 pins a release; ATCLAUDE_INSTALL_DIR changes the target
-# (default ~/.local/bin); ATCLAUDE_DOWNLOAD_URL replaces the release download URL (mirrors, tests).
+# Installs prinia from its latest GitHub release.
+#   curl -fsSL https://github.com/drumandbytes/prinia/releases/latest/download/install.sh | sh
+# PRINIA_VERSION=v0.1.0 pins a release; PRINIA_INSTALL_DIR changes the target
+# (default ~/.local/bin); PRINIA_DOWNLOAD_URL replaces the release download URL (mirrors, tests).
 set -eu
 
-repo="drumandbytes/atclaude"
-dir="${ATCLAUDE_INSTALL_DIR:-$HOME/.local/bin}"
-version="${ATCLAUDE_VERSION:-latest}"
+repo="drumandbytes/prinia"
+dir="${PRINIA_INSTALL_DIR:-$HOME/.local/bin}"
+version="${PRINIA_VERSION:-latest}"
 
 fail() {
   printf 'install: %s\n' "$*" >&2
@@ -24,10 +24,10 @@ case "$(uname -m)" in
   arm64 | aarch64) arch=arm64 ;;
   *) fail "unsupported architecture $(uname -m)" ;;
 esac
-asset="atclaude_${os}_${arch}.tar.gz"
+asset="prinia_${os}_${arch}.tar.gz"
 
-if [ -n "${ATCLAUDE_DOWNLOAD_URL:-}" ]; then
-  base="$ATCLAUDE_DOWNLOAD_URL"
+if [ -n "${PRINIA_DOWNLOAD_URL:-}" ]; then
+  base="$PRINIA_DOWNLOAD_URL"
 elif [ "$version" = latest ]; then
   base="https://github.com/$repo/releases/latest/download"
 else
@@ -50,14 +50,14 @@ else
 fi
 [ "$got" = "$want" ] || fail "checksum mismatch for $asset; not installing"
 
-tar -xzf "$tmp/$asset" -C "$tmp" atclaude
+tar -xzf "$tmp/$asset" -C "$tmp" prinia
 mkdir -p "$dir"
-install -m 755 "$tmp/atclaude" "$dir/atclaude"
+install -m 755 "$tmp/prinia" "$dir/prinia"
 
-echo "Installed $("$dir/atclaude" --version) to $dir/atclaude"
+echo "Installed $("$dir/prinia" --version) to $dir/prinia"
 case ":$PATH:" in
   *":$dir:"*) ;;
   *) echo "Add $dir to your PATH." ;;
 esac
-echo 'Next, set an API key (for example: export ANTHROPIC_API_KEY=...) and try: atclaude "hello"'
-echo "Setup and usage: https://github.com/drumandbytes/atclaude#readme"
+echo 'Next, set an API key (for example: export ANTHROPIC_API_KEY=...) and try: prinia "hello"'
+echo "Setup and usage: https://github.com/drumandbytes/prinia#readme"

@@ -3,20 +3,20 @@
 Every setting can be given four ways. The first that applies wins:
 
 1. A **flag** (where one exists, such as `-m` or `--no-record`)
-2. An **environment variable**: `ATCLAUDE_` plus the setting name in capitals, e.g. `ATCLAUDE_MAX_TOKENS=2000`
-3. A **`.atclauderc`** file in the current directory or a parent. Closer files win over farther ones
-4. The **global config**: `~/.config/atclaude/config.toml` (`$XDG_CONFIG_HOME` is respected, on Windows `%APPDATA%\atclaude`; `ATCLAUDE_CONFIG` points at another file)
+2. An **environment variable**: `PRINIA_` plus the setting name in capitals, e.g. `PRINIA_MAX_TOKENS=2000`
+3. A **`.priniarc`** file in the current directory or a parent. Closer files win over farther ones
+4. The **global config**: `~/.config/prinia/config.toml` (`$XDG_CONFIG_HOME` is respected, on Windows `%APPDATA%\prinia`; `PRINIA_CONFIG` points at another file)
 
 ```toml
-# ~/.config/atclaude/config.toml, or .atclauderc in a project
+# ~/.config/prinia/config.toml, or .priniarc in a project
 provider = "anthropic"
 record = true
 cache_ttl = "3d"
 ```
 
-`atclaude config` prints every setting, its effective value and its source (`env`, `config` or `default`), the files that were read and the configured providers. Unknown keys and values of the wrong type are reported on stderr and ignored, so a typo never silently changes behaviour. Booleans in environment variables accept `1/0`, `true/false`, `yes/no`, `on/off`.
+`prinia config` prints every setting, its effective value and its source (`env`, `config` or `default`), the files that were read and the configured providers. Unknown keys and values of the wrong type are reported on stderr and ignored, so a typo never silently changes behaviour. Booleans in environment variables accept `1/0`, `true/false`, `yes/no`, `on/off`.
 
-A `.atclauderc` is how a project gets its own behaviour: a repository that should never be recorded says `record = false`; one that must use a local model says `provider = "local"`.
+A `.priniarc` is how a project gets its own behaviour: a repository that should never be recorded says `record = false`; one that must use a local model says `provider = "local"`.
 
 ## Providers
 
@@ -45,7 +45,7 @@ fast_model = "meta-llama/Llama-3.2-3B-Instruct-Turbo"
 | `api_key_env` | Environment variable holding the key. Defaults to `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`. Not needed for a local endpoint |
 | `model`, `fast_model`, `deep_model` | Models for the three tiers |
 
-Without `-p` or `provider`, atclaude uses the first of `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` that is set.
+Without `-p` or `provider`, prinia uses the first of `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` that is set.
 
 API keys are read from the environment and are never written to the history or the config. Calls to the official Anthropic endpoint with a model that can decline a request ask the API to retry on a fallback model automatically.
 
@@ -76,7 +76,7 @@ Provider tables override the top-level `model`, `fast_model` and `deep_model`.
 
 ## System prompts
 
-atclaude sends one of these as the system prompt, depending on whether input or output is piped. Replace either with the setting above; multi-line TOML strings work.
+prinia sends one of these as the system prompt, depending on whether input or output is piped. Replace either with the setting above; multi-line TOML strings work.
 
 **Pipe** (stdin or stdout is not a terminal):
 
@@ -91,4 +91,4 @@ atclaude sends one of these as the system prompt, depending on whether input or 
 | Variable | |
 | :--- | :--- |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (or the variable named by `api_key_env`) | Provider credentials |
-| `ATCLAUDE_CONFIG` | Path of the global config file |
+| `PRINIA_CONFIG` | Path of the global config file |

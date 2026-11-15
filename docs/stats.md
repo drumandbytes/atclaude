@@ -1,10 +1,10 @@
 # Stats and prompt integration
 
 ```bash
-atclaude stats                    # all time: calls, answered from history, tokens
-atclaude stats --here --since 0d  # this directory, today
-atclaude stats --since 7d --json  # for scripts
-atclaude stats --format '{calls} calls, {hit_rate}% cached'
+prinia stats                    # all time: calls, answered from history, tokens
+prinia stats --here --since 0d  # this directory, today
+prinia stats --since 7d --json  # for scripts
+prinia stats --format '{calls} calls, {hit_rate}% cached'
 ```
 
 `--since` counts days: `0d` is today, `7d` the last seven days, `4w` four weeks. `--here` limits it to the current directory. With no options it covers everything in your history.
@@ -18,9 +18,9 @@ Stats come from a small table that is updated after each call, and they never re
 Add to `~/.config/starship.toml`. This shows today's calls in this directory and hides itself when there are none:
 
 ```toml
-[custom.atclaude]
-command = "atclaude stats --here --since 0d --format '{calls} calls · {hit_rate}% cached'"
-when = "test \"$(atclaude stats --here --since 0d --format '{calls}')\" -gt 0"
+[custom.prinia]
+command = "prinia stats --here --since 0d --format '{calls} calls · {hit_rate}% cached'"
+when = "test \"$(prinia stats --here --since 0d --format '{calls}')\" -gt 0"
 symbol = "◆ "
 style = "dimmed"
 format = "[$symbol$output]($style) "
@@ -37,7 +37,7 @@ A `command` segment in your theme:
   "foreground": "#888888",
   "properties": {
     "shell": "bash",
-    "command": "atclaude stats --here --since 0d --format '{calls} calls'"
+    "command": "prinia stats --here --since 0d --format '{calls} calls'"
   }
 }
 ```
@@ -47,9 +47,9 @@ A `command` segment in your theme:
 Any shell can call it in its prompt. In bash:
 
 ```bash
-PS1='$(atclaude stats --here --since 0d --format "{calls} ")\$ '
+PS1='$(prinia stats --here --since 0d --format "{calls} ")\$ '
 ```
 
-In PowerShell, use `atclaude stats --here --since 0d --format '{calls}'` inside your `prompt` function.
+In PowerShell, use `prinia stats --here --since 0d --format '{calls}'` inside your `prompt` function.
 
 The Starship example is tested. The others follow those tools' documented syntax but have not been run.

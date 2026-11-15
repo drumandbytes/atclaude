@@ -236,8 +236,8 @@ pub fn enforce_limits(store: &Store, cfg: &Config) {
         }
     }) {
         Ok(0) => {}
-        Ok(n) => eprintln!("[atclaude] history over its limit: removed the {n} oldest turn(s)"),
-        Err(e) => eprintln!("[atclaude] history limits not applied: {e:#}"),
+        Ok(n) => eprintln!("[prinia] history over its limit: removed the {n} oldest turn(s)"),
+        Err(e) => eprintln!("[prinia] history limits not applied: {e:#}"),
     }
 }
 

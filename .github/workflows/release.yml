@@ -52,9 +52,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir stage
-          cp target/release/atclaude LICENSE README.md stage/
-          tar -czf "atclaude_${NAME}.tar.gz" -C stage atclaude LICENSE README.md
-          gh release upload "$TAG" "atclaude_${NAME}.tar.gz" --clobber
+          cp target/release/prinia LICENSE README.md stage/
+          tar -czf "prinia_${NAME}.tar.gz" -C stage prinia LICENSE README.md
+          gh release upload "$TAG" "prinia_${NAME}.tar.gz" --clobber
 
   # Checksums for the installer, then the Homebrew formula in the tap.
   publish:
@@ -77,7 +77,7 @@ jobs:
           private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
           permission-contents: write
           owner: drumandbytes
-          repositories: atclaude,homebrew-tap
+          repositories: prinia,homebrew-tap
 
       - name: Checksums
         env:
@@ -85,8 +85,8 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          gh release download "$TAG" --pattern 'atclaude_*.tar.gz'
-          sha256sum atclaude_*.tar.gz > checksums.txt
+          gh release download "$TAG" --pattern 'prinia_*.tar.gz'
+          sha256sum prinia_*.tar.gz > checksums.txt
           cat checksums.txt
           gh release upload "$TAG" checksums.txt --clobber
           # the installer is served from the release, so its URL is stable
@@ -98,21 +98,21 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          sha() { awk -v f="atclaude_$1.tar.gz" '$2 == f { print $1 }' checksums.txt; }
+          sha() { awk -v f="prinia_$1.tar.gz" '$2 == f { print $1 }' checksums.txt; }
           sed -e "s|@TAG@|${TAG}|g" \
               -e "s|@VERSION@|${TAG#v}|g" \
               -e "s|@SHA_DARWIN_ARM64@|$(sha darwin_arm64)|" \
               -e "s|@SHA_DARWIN_AMD64@|$(sha darwin_amd64)|" \
               -e "s|@SHA_LINUX_ARM64@|$(sha linux_arm64)|" \
               -e "s|@SHA_LINUX_AMD64@|$(sha linux_amd64)|" \
-              packaging/atclaude.rb.in > atclaude.rb
-          if grep -q '@' atclaude.rb; then echo "unfilled placeholder in formula" >&2; exit 1; fi
+              packaging/prinia.rb.in > prinia.rb
+          if grep -q '@' prinia.rb; then echo "unfilled placeholder in formula" >&2; exit 1; fi
           args=()
-          existing=$(gh api repos/drumandbytes/homebrew-tap/contents/Formula/atclaude.rb -q .sha 2>/dev/null || true)
+          existing=$(gh api repos/drumandbytes/homebrew-tap/contents/Formula/prinia.rb -q .sha 2>/dev/null || true)
           if [ -n "$existing" ]; then args+=(-f "sha=$existing"); fi
-          gh api -X PUT repos/drumandbytes/homebrew-tap/contents/Formula/atclaude.rb \
-            -f "message=atclaude ${TAG#v}" \
-            -f "content=$(base64 < atclaude.rb | tr -d '\n')" \
+          gh api -X PUT repos/drumandbytes/homebrew-tap/contents/Formula/prinia.rb \
+            -f "message=prinia ${TAG#v}" \
+            -f "content=$(base64 < prinia.rb | tr -d '\n')" \
             "${args[@]}"
 
   # The release is already published by now, so a failure here is an alarm, not
@@ -142,10 +142,10 @@ jobs:
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          export ATCLAUDE_VERSION="$TAG" ATCLAUDE_INSTALL_DIR="$RUNNER_TEMP/bin"
+          export PRINIA_VERSION="$TAG" PRINIA_INSTALL_DIR="$RUNNER_TEMP/bin"
           sh scripts/install.sh
-          out=$("$ATCLAUDE_INSTALL_DIR/atclaude" --version)
+          out=$("$PRINIA_INSTALL_DIR/prinia" --version)
           echo "$out"
-          [ "$out" = "atclaude ${TAG#v}" ]
+          [ "$out" = "prinia ${TAG#v}" ]
           # no network, no API key: the history key and database are created on first use only
-          "$ATCLAUDE_INSTALL_DIR/atclaude" config | grep -q providers
+          "$PRINIA_INSTALL_DIR/prinia" config | grep -q providers

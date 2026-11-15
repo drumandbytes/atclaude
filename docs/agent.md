@@ -1,12 +1,12 @@
 # Agent mode
 
 ```bash
-atclaude -a "which file defines the retry logic, and how many times does it retry?"
-atclaude -a --write "rename the function parse to parse_config everywhere"
-atclaude -a --run "run the tests and tell me what fails"
+prinia -a "which file defines the retry logic, and how many times does it retry?"
+prinia -a --write "rename the function parse to parse_config everywhere"
+prinia -a --run "run the tests and tell me what fails"
 ```
 
-With `-a` (`--agent`) the model can look around in the current directory before it answers: it calls tools, `atclaude` runs them and returns the results, and this repeats until the model gives a final answer. The answer goes to stdout like any other call, and one line per tool call goes to stderr so you can see what it did.
+With `-a` (`--agent`) the model can look around in the current directory before it answers: it calls tools, `prinia` runs them and returns the results, and this repeats until the model gives a final answer. The answer goes to stdout like any other call, and one line per tool call goes to stderr so you can see what it did.
 
 ## What it can do
 

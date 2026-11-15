@@ -1,7 +1,7 @@
 # Usage
 
 ```bash
-atclaude "where does a unix pipe buffer its data?"
+prinia "where does a unix pipe buffer its data?"
 ```
 
 On a terminal the answer streams as it is generated.
@@ -11,18 +11,18 @@ On a terminal the answer streams as it is generated.
 stdin is data and the argument is the instruction. With only stdin, the input itself is the prompt.
 
 ```bash
-cat error.log | atclaude "extract the 500 status codes" | jq .
-git diff | atclaude "write a one-line commit message" | pbcopy
-journalctl -u app | atclaude "output a JSON array of distinct error messages" | jq -r '.[]'
+cat error.log | prinia "extract the 500 status codes" | jq .
+git diff | prinia "write a one-line commit message" | pbcopy
+journalctl -u app | prinia "output a JSON array of distinct error messages" | jq -r '.[]'
 ```
 
-Whenever stdin **or** stdout is not a terminal, atclaude behaves as a filter: a system prompt asks for plain text with no greeting or commentary, a single wrapping code fence is stripped, diagnostics go to stderr, and the output is written once, when the answer is complete. A reader that exits early (`| head -n 1`) is fine.
+Whenever stdin **or** stdout is not a terminal, prinia behaves as a filter: a system prompt asks for plain text with no greeting or commentary, a single wrapping code fence is stripped, diagnostics go to stderr, and the output is written once, when the answer is complete. A reader that exits early (`| head -n 1`) is fine.
 
 Things to know when chaining:
 
-- atclaude reads all of stdin before calling the model. `tail -f log | atclaude` waits for the stream to end.
+- prinia reads all of stdin before calling the model. `tail -f log | prinia` waits for the stream to end.
 - Model output is not deterministic. When another tool parses the result, name the format in the instruction ("output a JSON array of ...").
-- If the answer is cut off at the output limit, atclaude says so on stderr; raise [`max_tokens`](configuration.md).
+- If the answer is cut off at the output limit, prinia says so on stderr; raise [`max_tokens`](configuration.md).
 - The exit code is `0` on success and `1` on any failure (network, provider error, a refused request, configuration).
 
 ## Tiers and models
@@ -51,8 +51,8 @@ A call can only be served from history if it was recorded, so `record = false` a
 Models have no memory between calls. `-c` (`--context`) sends the most recent turns from your history in this directory along with the new question, so a follow-up knows what came before:
 
 ```bash
-atclaude "what does SIGPIPE do?"
-atclaude -c "and how do I ignore it in Rust?"
+prinia "what does SIGPIPE do?"
+prinia -c "and how do I ignore it in Rust?"
 ```
 
 The context comes from your own history, not from a provider's session, so it works with any provider and survives a switch of model. Only turns from the current directory are used, oldest first, and long turns are cut. Set `context = 5` (a number of turns) to include it on every call and `--no-context` to leave it out once. `context_chars` (default 16000) caps its size; the oldest turns are dropped first. Calls made with `--no-record` are not in the history, so they are never part of a context.
@@ -61,11 +61,11 @@ A call with context is cached separately from the same question without it.
 
 ## Recording
 
-Every successful call is saved to the [history](history.md) after its output has been written. `--no-record` skips it for one call; `record = false` (or `ATCLAUDE_RECORD=0`) turns it off for a directory or everywhere, and `--record` overrides that for one call.
+Every successful call is saved to the [history](history.md) after its output has been written. `--no-record` skips it for one call; `record = false` (or `PRINIA_RECORD=0`) turns it off for a directory or everywhere, and `--record` overrides that for one call.
 
 ## Providers
 
-`-p NAME` (`--provider`) selects a provider for one call. Without it, atclaude uses the `provider` setting, then whichever of `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` is set. See [Configuration](configuration.md#providers).
+`-p NAME` (`--provider`) selects a provider for one call. Without it, prinia uses the `provider` setting, then whichever of `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` is set. See [Configuration](configuration.md#providers).
 
 ## Reference
 
@@ -81,6 +81,6 @@ Every successful call is saved to the [history](history.md) after its output has
 
 | Command | |
 | :--- | :--- |
-| `atclaude config` | Show every setting and where its value comes from |
-| `atclaude history` | Browse, `show`, `rm` ([History](history.md)) |
-| `atclaude key` | `show`, `import`, `rotate` ([History](history.md#the-key)) |
+| `prinia config` | Show every setting and where its value comes from |
+| `prinia history` | Browse, `show`, `rm` ([History](history.md)) |
+| `prinia key` | `show`, `import`, `rotate` ([History](history.md#the-key)) |

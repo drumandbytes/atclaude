@@ -3,7 +3,7 @@
 //! calling binary, so a crate would re-prompt after every rebuild; `security` never changes.
 use anyhow::Result;
 
-const SERVICE: &str = "atclaude";
+const SERVICE: &str = "prinia";
 const ACCOUNT: &str = "db-key";
 
 #[cfg(target_os = "macos")]
@@ -85,7 +85,7 @@ mod imp {
         let mut child = Command::new("secret-tool")
             .args([
                 "store",
-                "--label=atclaude",
+                "--label=prinia",
                 "service",
                 SERVICE,
                 "account",

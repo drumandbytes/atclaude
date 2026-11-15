@@ -151,7 +151,7 @@ struct Env {
 
 impl Env {
     fn new(name: &str, mock: &Mock) -> Env {
-        let dir = std::env::temp_dir().join(format!("atclaude-it-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("prinia-it-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("cfg")).unwrap();
         std::fs::create_dir_all(dir.join("work")).unwrap();
@@ -172,14 +172,14 @@ impl Env {
 
     /// (stdout, stderr, exit code)
     fn run(&self, args: &[&str], stdin: &str, extra_env: &[(&str, &str)]) -> (String, String, i32) {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_atclaude"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_prinia"));
         cmd.args(args)
             .current_dir(self.dir.join("work"))
             .env_clear()
             .env("PATH", std::env::var("PATH").unwrap_or_default())
             .env("HOME", &self.dir)
-            .env("ATCLAUDE_CONFIG", self.dir.join("cfg/config.toml"))
-            .env("ATCLAUDE_DB", self.db())
+            .env("PRINIA_CONFIG", self.dir.join("cfg/config.toml"))
+            .env("PRINIA_DB", self.db())
             .env("ANTHROPIC_API_KEY", "test-key")
             .envs(extra_env.iter().copied())
             .stdin(Stdio::piped())
@@ -318,7 +318,7 @@ fn provider_errors_are_reported() {
 fn no_record_leaves_nothing_behind() {
     let mock = Mock::start("ok", 200);
     let env = Env::new("norecord", &mock);
-    let (out, _, code) = env.run(&["--no-record", "hi"], "", &[("ATCLAUDE_CACHE", "off")]);
+    let (out, _, code) = env.run(&["--no-record", "hi"], "", &[("PRINIA_CACHE", "off")]);
     assert_eq!((out.as_str(), code), ("ok\n", 0));
     assert!(!env.db().exists() && !env.dir.join("cfg/key").exists());
 }
@@ -408,31 +408,27 @@ fn context_comes_from_history_of_this_directory() {
     env.run(
         &args("-c", "fourth question"),
         "",
-        &[("ATCLAUDE_CONTEXT", "1")],
+        &[("PRINIA_CONTEXT", "1")],
     );
     assert_eq!(mock.last().1["messages"].as_array().unwrap().len(), 4);
-    env.run(
-        &args("", "fifth question"),
-        "",
-        &[("ATCLAUDE_CONTEXT", "1")],
-    );
+    env.run(&args("", "fifth question"), "", &[("PRINIA_CONTEXT", "1")]);
     assert_eq!(mock.last().1["messages"].as_array().unwrap().len(), 4);
     env.run(
         &args("--no-context", "sixth"),
         "",
-        &[("ATCLAUDE_CONTEXT", "1")],
+        &[("PRINIA_CONTEXT", "1")],
     );
     assert_eq!(mock.last().1["messages"].as_array().unwrap().len(), 2);
 
     // another directory has its own history; anthropic carries history in `messages` too
     std::fs::create_dir_all(env.dir.join("work/other")).unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_atclaude"))
+    let out = Command::new(env!("CARGO_BIN_EXE_prinia"))
         .args(["-c", "seventh question"])
         .current_dir(env.dir.join("work/other"))
         .env_clear()
         .env("HOME", &env.dir)
-        .env("ATCLAUDE_CONFIG", env.dir.join("cfg/config.toml"))
-        .env("ATCLAUDE_DB", env.db())
+        .env("PRINIA_CONFIG", env.dir.join("cfg/config.toml"))
+        .env("PRINIA_DB", env.db())
         .env("ANTHROPIC_API_KEY", "test-key")
         .stdin(Stdio::null())
         .output()
@@ -481,11 +477,7 @@ fn history_stays_within_its_size_limit() {
             .collect()
     };
     for i in 1..=5 {
-        env.run(
-            &[&format!("q{i}")],
-            &blob(i),
-            &[("ATCLAUDE_MAX_SIZE", "8k")],
-        );
+        env.run(&[&format!("q{i}")], &blob(i), &[("PRINIA_MAX_SIZE", "8k")]);
     }
     let (list, _, _) = env.run(&["history"], "", &[]);
     let n = list.lines().count();
@@ -500,7 +492,7 @@ fn history_stays_within_its_size_limit() {
     let (out, _, code) = env.run(
         &["history", "clean", "--yes"],
         "",
-        &[("ATCLAUDE_MAX_SIZE", "1k")],
+        &[("PRINIA_MAX_SIZE", "1k")],
     );
     assert_eq!(code, 0, "{out}");
     let (list, _, _) = env.run(&["history"], "", &[]);
@@ -518,14 +510,14 @@ fn history_agent_deletes_only_what_the_model_names_and_only_when_confirmed() {
     let (_, err, code) = env.run(
         &["history", "agent", "drop the first"],
         "",
-        &[("ATCLAUDE_PROVIDER", "local")],
+        &[("PRINIA_PROVIDER", "local")],
     );
     assert!(code != 0 && err.contains("--yes"), "{err}");
     assert_eq!(env.run(&["history"], "", &[]).0.lines().count(), 2);
     let (out, err, code) = env.run(
         &["history", "agent", "--yes", "drop the first"],
         "",
-        &[("ATCLAUDE_PROVIDER", "local")],
+        &[("PRINIA_PROVIDER", "local")],
     );
     assert_eq!(code, 0, "{out}{err}");
     assert!(out.contains("deleted 1"), "{out}");
@@ -548,7 +540,7 @@ fn history_ask_sends_excerpts_and_prints_the_answer() {
     let (out, err, code) = env.run(
         &["history", "ask", "what did I ask about birds?"],
         "",
-        &[("ATCLAUDE_PROVIDER", "local")],
+        &[("PRINIA_PROVIDER", "local")],
     );
     assert_eq!((out.as_str(), code), ("see #1\n", 0), "{err}");
     let user = mock.last().1["messages"][1]["content"]
@@ -569,7 +561,7 @@ fn size_rules_pick_the_tier() {
     let mock = Mock::start("ok", 200);
     let env = Env::new("tier", &mock);
     let model = || mock.last().1["model"].as_str().unwrap().to_string();
-    let rules = [("ATCLAUDE_FAST_UNDER", "20"), ("ATCLAUDE_DEEP_OVER", "60")];
+    let rules = [("PRINIA_FAST_UNDER", "20"), ("PRINIA_DEEP_OVER", "60")];
     env.run(&["short"], "", &rules);
     assert_eq!(model(), "claude-haiku-5-5");
     env.run(&["a medium length question here"], "", &rules);
@@ -627,13 +619,13 @@ fn stats_count_calls_hits_and_tokens_without_the_key() {
     assert_eq!(out.trim(), "2 calls, 50%, 18 tok");
     // another directory has no calls
     std::fs::create_dir_all(env.dir.join("work/elsewhere")).unwrap();
-    let o = Command::new(env!("CARGO_BIN_EXE_atclaude"))
+    let o = Command::new(env!("CARGO_BIN_EXE_prinia"))
         .args(["stats", "--here", "--json"])
         .current_dir(env.dir.join("work/elsewhere"))
         .env_clear()
         .env("HOME", &env.dir)
-        .env("ATCLAUDE_CONFIG", env.dir.join("cfg/config.toml"))
-        .env("ATCLAUDE_DB", env.db())
+        .env("PRINIA_CONFIG", env.dir.join("cfg/config.toml"))
+        .env("PRINIA_DB", env.db())
         .output()
         .unwrap();
     assert!(String::from_utf8_lossy(&o.stdout).contains("\"calls\":0"));
@@ -789,7 +781,7 @@ fn agent_stays_inside_the_working_directory_and_stops_after_its_step_limit() {
 
     let mock = Mock::start_with("", 200, vec![Step::Call("list_dir", "{}")]);
     let env = Env::new("agent-loop", &mock);
-    let (_, err, code) = env.run(&["-a", "loop"], "", &[("ATCLAUDE_AGENT_STEPS", "3")]);
+    let (_, err, code) = env.run(&["-a", "loop"], "", &[("PRINIA_AGENT_STEPS", "3")]);
     assert!(code != 0 && err.contains("stopped after 3 steps"), "{err}");
     assert_eq!(mock.hits(), 3);
 }

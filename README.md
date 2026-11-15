@@ -1,15 +1,15 @@
-# atclaude
+# prinia
 
 Call AI models from the command line the way you call `jq`, `grep` or `curl`: data on stdin, an instruction as the argument, the result on stdout. Every call is saved to an encrypted local history, so identical calls are answered instantly and nothing you asked is lost.
 
 ```bash
-atclaude "where does a unix pipe buffer its data?"
+prinia "where does a unix pipe buffer its data?"
 
-journalctl -u app | atclaude "output a JSON array of distinct error messages" | jq -r '.[]'
+journalctl -u app | prinia "output a JSON array of distinct error messages" | jq -r '.[]'
 
-git diff | atclaude -f "write a one-line commit message" | pbcopy
+git diff | prinia -f "write a one-line commit message" | pbcopy
 
-atclaude -d "review this design for race conditions" < design.md
+prinia -d "review this design for race conditions" < design.md
 ```
 
 - **A real Unix filter.** When input or output is piped you get raw text: no markdown, no code fences, errors on stderr, a non-zero exit code on failure.
@@ -22,16 +22,16 @@ atclaude -d "review this design for race conditions" < design.md
 ## Install
 
 ```bash
-curl -fsSL https://github.com/drumandbytes/atclaude/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/drumandbytes/prinia/releases/latest/download/install.sh | sh
 # or
-brew install drumandbytes/tap/atclaude
+brew install drumandbytes/tap/prinia
 ```
 
 Then give it a provider:
 
 ```bash
 export ANTHROPIC_API_KEY=...      # or OPENAI_API_KEY, or configure a local model
-atclaude "hello"
+prinia "hello"
 ```
 
 See [Install](docs/install.md) for other platforms and building from source, and [Configuration](docs/configuration.md) for local models and other providers.
@@ -39,23 +39,23 @@ See [Install](docs/install.md) for other platforms and building from source, and
 ## Usage
 
 ```bash
-atclaude "question"                    # ask; the answer streams to the terminal
-cmd | atclaude "instruction" | cmd2    # a pipeline step
-atclaude -f "..."                      # fast tier
-atclaude -d "..."                      # reasoning tier
-atclaude -p local "..."                # a configured provider
-atclaude -a "..."                     # agent: the model reads and searches files here (--write, --run to allow more)
-atclaude -c "..."                     # include earlier turns from this directory
-atclaude --no-cache "..."              # ask again even if the call is in your history
-atclaude --no-record "..."             # don't save this call
+prinia "question"                    # ask; the answer streams to the terminal
+cmd | prinia "instruction" | cmd2    # a pipeline step
+prinia -f "..."                      # fast tier
+prinia -d "..."                      # reasoning tier
+prinia -p local "..."                # a configured provider
+prinia -a "..."                     # agent: the model reads and searches files here (--write, --run to allow more)
+prinia -c "..."                     # include earlier turns from this directory
+prinia --no-cache "..."              # ask again even if the call is in your history
+prinia --no-record "..."             # don't save this call
 
-atclaude history                       # browse everything you asked (fzf when available)
-atclaude history search kestrel        # find turns by words in prompt, input or answer
-atclaude history ask "what did I ask about TLS?"   # a fast model answers from your history
-atclaude history rm --older 90d        # delete by age (asks first)
-atclaude key show                      # your history key as 24 words
-atclaude stats                         # calls, cache hits, tokens (also --json, --format for prompts)
-atclaude config                        # every setting and where its value comes from
+prinia history                       # browse everything you asked (fzf when available)
+prinia history search kestrel        # find turns by words in prompt, input or answer
+prinia history ask "what did I ask about TLS?"   # a fast model answers from your history
+prinia history rm --older 90d        # delete by age (asks first)
+prinia key show                      # your history key as 24 words
+prinia stats                         # calls, cache hits, tokens (also --json, --format for prompts)
+prinia config                        # every setting and where its value comes from
 ```
 
 More in [Usage](docs/usage.md) and [History](docs/history.md).
@@ -74,7 +74,7 @@ More in [Usage](docs/usage.md) and [History](docs/history.md).
 
 ## Status
 
-atclaude is beta software.
+prinia is beta software.
 
 - macOS and Linux are tested. Windows is untested.
 - Agent mode has run against a mock server and one OpenAI-compatible provider; the Anthropic tool-call format has not run against the real API yet.

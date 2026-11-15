@@ -125,7 +125,7 @@ mod tests {
     fn file_perms() {
         use std::os::unix::fs::PermissionsExt;
         let p = std::env::temp_dir()
-            .join(format!("atclaude-key-{}", std::process::id()))
+            .join(format!("prinia-key-{}", std::process::id()))
             .join("key");
         assert_eq!(read_file(&p).unwrap(), None);
         write_file(&p, "aa").unwrap();

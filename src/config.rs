@@ -9,8 +9,8 @@ pub enum Ty {
     Num,
 }
 
-/// Every flat setting. Each one also reads the env var `ATCLAUDE_<KEY>`.
-/// Precedence: flag > env > nearest `.atclauderc` > parent `.atclauderc` files > global config > default.
+/// Every flat setting. Each one also reads the env var `PRINIA_<KEY>`.
+/// Precedence: flag > env > nearest `.priniarc` > parent `.priniarc` files > global config > default.
 /// `[providers.<name>]` tables are the one nested setting.
 pub const KEYS: &[(&str, Ty)] = &[
     ("provider", Ty::Str),
@@ -46,12 +46,12 @@ pub struct Config {
 }
 
 pub fn global_path() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("ATCLAUDE_CONFIG") {
+    if let Some(p) = std::env::var_os("PRINIA_CONFIG") {
         return Some(p.into());
     }
     #[cfg(windows)]
     return Some(
-        directories::ProjectDirs::from("", "", "atclaude")?
+        directories::ProjectDirs::from("", "", "prinia")?
             .config_dir()
             .join("config.toml"),
     );
@@ -60,12 +60,12 @@ pub fn global_path() -> Option<PathBuf> {
         let base = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .or_else(|| directories::BaseDirs::new().map(|b| b.home_dir().join(".config")))?;
-        Some(base.join("atclaude/config.toml"))
+        Some(base.join("prinia/config.toml"))
     }
 }
 
 fn env(key: &str) -> Option<String> {
-    std::env::var(format!("ATCLAUDE_{}", key.to_uppercase()))
+    std::env::var(format!("PRINIA_{}", key.to_uppercase()))
         .ok()
         .filter(|v| !v.is_empty())
 }
@@ -85,7 +85,7 @@ impl Config {
 
     pub fn load_from(global: Option<PathBuf>, cwd: &Path) -> Config {
         let mut paths: Vec<PathBuf> = global.into_iter().collect();
-        let mut dirs: Vec<PathBuf> = cwd.ancestors().map(|d| d.join(".atclauderc")).collect();
+        let mut dirs: Vec<PathBuf> = cwd.ancestors().map(|d| d.join(".priniarc")).collect();
         dirs.reverse(); // farthest first, so the nearest file wins
         paths.extend(dirs);
 
@@ -101,7 +101,7 @@ impl Config {
             let t = match toml::from_str::<Table>(&text) {
                 Ok(t) => t,
                 Err(e) => {
-                    eprintln!("[atclaude] ignoring {}: {e}", p.display());
+                    eprintln!("[prinia] ignoring {}: {e}", p.display());
                     continue;
                 }
             };
@@ -114,7 +114,7 @@ impl Config {
                             .providers
                             .extend(ps.into_iter().filter(|(_, p)| p.is_table())),
                         _ => eprintln!(
-                            "[atclaude] {}: `providers` must be a table; ignored",
+                            "[prinia] {}: `providers` must be a table; ignored",
                             p.display()
                         ),
                     }
@@ -122,11 +122,11 @@ impl Config {
                 }
                 match KEYS.iter().find(|(n, _)| *n == k) {
                     None => eprintln!(
-                        "[atclaude] {}: unknown key `{k}` (see `atclaude config`)",
+                        "[prinia] {}: unknown key `{k}` (see `prinia config`)",
                         p.display()
                     ),
                     Some((_, ty)) if !fits(*ty, &v) => eprintln!(
-                        "[atclaude] {}: key `{k}` has the wrong type; ignored",
+                        "[prinia] {}: key `{k}` has the wrong type; ignored",
                         p.display()
                     ),
                     Some(_) => {
@@ -181,7 +181,7 @@ impl Config {
         self.providers.keys().collect()
     }
 
-    /// Effective value and where it came from, for `atclaude config`.
+    /// Effective value and where it came from, for `prinia config`.
     pub fn describe(&self, key: &str) -> (String, &'static str) {
         if let Some(e) = env(key) {
             return (e, "env");
@@ -199,17 +199,13 @@ mod tests {
 
     #[test]
     fn layering() {
-        let root = std::env::temp_dir().join(format!("atclaude-cfg-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("prinia-cfg-{}", std::process::id()));
         let sub = root.join("a/b");
         fs::create_dir_all(&sub).unwrap();
         let global = root.join("global.toml");
         fs::write(&global, "record = false\nmodel = \"g\"\nmax_tokens = 100\n[providers.local]\ntype = \"openai\"\nbase_url = \"http://x/v1\"\n").unwrap();
-        fs::write(
-            root.join(".atclauderc"),
-            "model = \"proj\"\nrecrod = true\n",
-        )
-        .unwrap();
-        fs::write(sub.join(".atclauderc"), "record = true\nmodel = 5\n").unwrap();
+        fs::write(root.join(".priniarc"), "model = \"proj\"\nrecrod = true\n").unwrap();
+        fs::write(sub.join(".priniarc"), "record = true\nmodel = 5\n").unwrap();
 
         let c = Config::load_from(Some(global), &sub);
         assert_eq!(c.bool("record"), Some(true), "nearest file wins");

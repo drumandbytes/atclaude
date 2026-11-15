@@ -11,7 +11,7 @@ cargo fmt --check
 
 Building needs a Rust toolchain and a C compiler (bundled SQLite and zstd). The end-to-end tests in `tests/cli.rs` run the real binary against a local mock server that speaks both wire formats, so they need no network or API key.
 
-Debug builds read `ATCLAUDE_DB` (the database path) so development and tests never touch your real history. Release builds ignore it. `ATCLAUDE_CONFIG` points any build at a throwaway config file.
+Debug builds read `PRINIA_DB` (the database path) so development and tests never touch your real history. Release builds ignore it. `PRINIA_CONFIG` points any build at a throwaway config file.
 
 ## Layout
 

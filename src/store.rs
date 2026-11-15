@@ -58,14 +58,14 @@ pub struct Store {
 
 const SCHEMA_VERSION: i64 = 1;
 
-/// One database per user, in the global data directory. Debug builds read ATCLAUDE_DB so
+/// One database per user, in the global data directory. Debug builds read PRINIA_DB so
 /// development and tests never touch the real history.
 pub fn path() -> Result<PathBuf> {
     #[cfg(debug_assertions)]
-    if let Some(p) = std::env::var_os("ATCLAUDE_DB") {
+    if let Some(p) = std::env::var_os("PRINIA_DB") {
         return Ok(PathBuf::from(p));
     }
-    let dirs = directories::ProjectDirs::from("", "", "atclaude")
+    let dirs = directories::ProjectDirs::from("", "", "prinia")
         .ok_or_else(|| anyhow!("cannot determine data directory"))?;
     std::fs::create_dir_all(dirs.data_dir())?;
     Ok(dirs.data_dir().join("history.db"))
@@ -162,7 +162,7 @@ impl Store {
             Connection::open(path).with_context(|| format!("cannot open {}", path.display()))?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if version > SCHEMA_VERSION {
-            bail!("the history was written by a newer version of atclaude (schema {version})");
+            bail!("the history was written by a newer version of prinia (schema {version})");
         }
         conn.execute_batch(&format!(
             "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value BLOB NOT NULL);
@@ -205,7 +205,7 @@ impl Store {
                 .try_into()
                 .map_err(|_| anyhow!("corrupt data key"))?,
             (Some(_), None) => bail!(
-                "the history exists but its key is missing; restore it with `atclaude key import`"
+                "the history exists but its key is missing; restore it with `prinia key import`"
             ),
             (None, master) => {
                 let master = match master {

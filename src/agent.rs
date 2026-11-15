@@ -337,7 +337,7 @@ pub fn run(o: &Opts, on_text: &mut dyn FnMut(&str)) -> Result<Reply> {
             .calls
             .iter()
             .map(|c| {
-                eprintln!("[atclaude] {}", show(c));
+                eprintln!("[prinia] {}", show(c));
                 (c.id.clone(), exec(c, &root, o.write, o.run))
             })
             .collect();

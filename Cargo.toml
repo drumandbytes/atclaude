@@ -1,11 +1,11 @@
 [package]
-name = "atclaude"
+name = "prinia"
 version = "0.1.0"
 edition = "2024"
 description = "Call AI models from the command line like any other filter, with an encrypted, searchable history"
 license = "MIT"
-repository = "https://github.com/drumandbytes/atclaude"
-homepage = "https://github.com/drumandbytes/atclaude"
+repository = "https://github.com/drumandbytes/prinia"
+homepage = "https://github.com/drumandbytes/prinia"
 readme = "README.md"
 
 [profile.release]

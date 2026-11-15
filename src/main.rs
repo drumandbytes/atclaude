@@ -24,7 +24,7 @@ const PROMPT_INTERACTIVE: &str = "You are an inline terminal companion. Answer d
 
 #[derive(Parser)]
 #[command(
-    name = "atclaude",
+    name = "prinia",
     version,
     about = "Call AI models from the command line like any other filter"
 )]
@@ -172,7 +172,7 @@ enum KeyCmd {
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("atclaude: {e:#}");
+        eprintln!("prinia: {e:#}");
         exit(1);
     }
 }
@@ -236,7 +236,7 @@ fn ask(cli: &Cli, cfg: &Config, keychain: bool) -> Result<()> {
     }
     let instruction = cli.prompt.clone().unwrap_or_default();
     if instruction.is_empty() && payload.trim().is_empty() {
-        bail!("nothing to do. Usage: atclaude \"question\"   or   cmd | atclaude \"instruction\"");
+        bail!("nothing to do. Usage: prinia \"question\"   or   cmd | prinia \"instruction\"");
     }
 
     // Raw output whenever either end is a pipe.
@@ -395,7 +395,7 @@ fn ask(cli: &Cli, cfg: &Config, keychain: bool) -> Result<()> {
     }
     let _ = std::io::stdout().flush();
     if matches!(reply.stop.as_str(), "max_tokens" | "length") {
-        eprintln!("[atclaude] the answer was cut off at the output limit (raise `max_tokens`)");
+        eprintln!("[prinia] the answer was cut off at the output limit (raise `max_tokens`)");
     }
 
     // Bookkeeping happens after the output is out, so nothing downstream waits for it.
@@ -425,7 +425,7 @@ fn ask(cli: &Cli, cfg: &Config, keychain: bool) -> Result<()> {
             branch,
         };
         if let Err(e) = s.record(&meta, &content) {
-            eprintln!("[atclaude] history not saved: {e:#}");
+            eprintln!("[prinia] history not saved: {e:#}");
         } else {
             history::enforce_limits(s, cfg);
         }
@@ -500,7 +500,7 @@ fn key_cmd(action: &KeyCmd, keychain: bool) -> Result<()> {
             let new = key::random()?;
             store.rewrap(&new, keychain)?;
             println!(
-                "key rotated; the old key no longer works. Back up the new one with `atclaude key show`."
+                "key rotated; the old key no longer works. Back up the new one with `prinia key show`."
             );
         }
     }
@@ -523,7 +523,7 @@ fn show_config(cfg: &Config) -> Result<()> {
             .map(|p| p.display().to_string())
             .unwrap_or_default()
     );
-    println!("# env: ATCLAUDE_<KEY> overrides any file; flags override env");
+    println!("# env: PRINIA_<KEY> overrides any file; flags override env");
     for (key, _) in config::KEYS {
         let (value, source) = cfg.describe(key);
         let value: String = value.chars().take(60).collect();
