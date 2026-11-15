@@ -98,6 +98,39 @@ fn unseal(key: &Key, blob: &[u8]) -> Result<Vec<u8>> {
         .map_err(|_| anyhow!("cannot decrypt (wrong key?)"))
 }
 
+#[derive(Default)]
+pub struct Stats {
+    pub calls: u64,
+    pub cache_hits: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+/// Usage totals, read without the key (a prompt must stay fast and never trigger a key prompt).
+/// `since_days`: 0 is today only. A missing history is all zeros.
+pub fn read_stats(dir: Option<&str>, since_days: Option<i64>) -> Result<Stats> {
+    let path = path()?;
+    if !path.exists() {
+        return Ok(Stats::default());
+    }
+    let conn = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    conn.busy_timeout(std::time::Duration::from_millis(300))?;
+    let n = |r: &rusqlite::Row, i| r.get::<_, i64>(i).map(|v| v as u64);
+    Ok(conn.query_row(
+        "SELECT COALESCE(SUM(calls),0), COALESCE(SUM(cache_hits),0), COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0)
+         FROM stats WHERE (?1 IS NULL OR dir = ?1) AND (?2 IS NULL OR day >= date('now','localtime', '-' || ?2 || ' days'))",
+        params![dir, since_days],
+        |r| {
+            Ok(Stats {
+                calls: n(r, 0)?,
+                cache_hits: n(r, 1)?,
+                input_tokens: n(r, 2)?,
+                output_tokens: n(r, 3)?,
+            })
+        },
+    )?)
+}
+
 fn pack(key: &Key, c: &Content) -> Result<Vec<u8>> {
     let v = json!({"i": c.instruction, "p": c.payload, "r": c.response, "cwd": c.cwd, "repo": c.repo, "branch": c.branch});
     seal(key, &zstd::encode_all(v.to_string().as_bytes(), 3)?)

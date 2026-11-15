@@ -53,6 +53,7 @@ atclaude history search kestrel        # find turns by words in prompt, input or
 atclaude history ask "what did I ask about TLS?"   # a fast model answers from your history
 atclaude history rm --older 90d        # delete by age (asks first)
 atclaude key show                      # your history key as 24 words
+atclaude stats                         # calls, cache hits, tokens (also --json, --format for prompts)
 atclaude config                        # every setting and where its value comes from
 ```
 
@@ -66,6 +67,7 @@ More in [Usage](docs/usage.md) and [History](docs/history.md).
 | [Usage](docs/usage.md) | Pipelines, tiers, caching, flags |
 | [Configuration](docs/configuration.md) | Providers, models, every setting, environment variables |
 | [History](docs/history.md) | What is stored, encryption and keys, deleting |
+| [Stats](docs/stats.md) | Usage totals, Starship and Oh My Posh examples |
 | [Development](docs/development.md) | Building, tests, how it is put together, releases |
 
 ## Status
@@ -73,7 +75,7 @@ More in [Usage](docs/usage.md) and [History](docs/history.md).
 atclaude is beta software.
 
 - macOS and Linux are tested. Windows is untested.
-- Planned, not yet available: usage and cost statistics with prompt integration, and an agent mode.
+- Planned, not yet available: an agent mode.
 
 ## License
 

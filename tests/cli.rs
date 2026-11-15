@@ -538,3 +538,61 @@ fn size_rules_pick_the_tier() {
     env.run(&["-m", "custom-x", "short"], "", &rules);
     assert_eq!(model(), "custom-x");
 }
+
+#[test]
+fn stats_count_calls_hits_and_tokens_without_the_key() {
+    let mock = Mock::start("ok", 200);
+    let env = Env::new("stats", &mock);
+    let (out, _, code) = env.run(&["stats", "--format", "{calls}"], "", &[]);
+    assert_eq!((out.trim(), code), ("0", 0), "no history yet is all zeros");
+
+    env.run(&["one"], "", &[]);
+    env.run(&["one"], "", &[]); // answered from history
+    let (out, _, _) = env.run(&["stats", "--json"], "", &[]);
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(
+        (
+            v["calls"].as_u64(),
+            v["cache_hits"].as_u64(),
+            v["hit_rate"].as_u64()
+        ),
+        (Some(2), Some(1), Some(50)),
+        "{out}"
+    );
+    assert_eq!(
+        (v["input_tokens"].as_u64(), v["output_tokens"].as_u64()),
+        (Some(11), Some(7))
+    );
+
+    let (out, _, _) = env.run(
+        &[
+            "stats",
+            "--here",
+            "--since",
+            "0d",
+            "--format",
+            "{calls} calls, {hit_rate}%, {tokens} tok",
+        ],
+        "",
+        &[],
+    );
+    assert_eq!(out.trim(), "2 calls, 50%, 18 tok");
+    // another directory has no calls
+    std::fs::create_dir_all(env.dir.join("work/elsewhere")).unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_atclaude"))
+        .args(["stats", "--here", "--json"])
+        .current_dir(env.dir.join("work/elsewhere"))
+        .env_clear()
+        .env("HOME", &env.dir)
+        .env("ATCLAUDE_CONFIG", env.dir.join("cfg/config.toml"))
+        .env("ATCLAUDE_DB", env.db())
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&o.stdout).contains("\"calls\":0"));
+
+    // the key is not needed: remove it and stats still work
+    let key = env.dir.join("cfg/key");
+    std::fs::remove_file(&key).expect("the key file is next to the config");
+    let (out, _, code) = env.run(&["stats", "--format", "{calls}"], "", &[]);
+    assert_eq!((out.trim(), code), ("2", 0));
+}

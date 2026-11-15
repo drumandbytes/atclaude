@@ -15,6 +15,7 @@ mod history;
 mod key;
 mod keychain;
 mod provider;
+mod stats;
 mod store;
 
 const PROMPT_PIPE: &str = "You are a command-line tool in a UNIX pipeline. Output ONLY the raw text or data requested. No markdown, no code fences, no greetings, no commentary.";
@@ -80,6 +81,21 @@ enum Cmd {
         filter: history::FilterArgs,
         #[command(subcommand)]
         action: Option<HistoryCmd>,
+    },
+    /// Usage totals (calls, cache hits, tokens); fast, and never needs the history key
+    Stats {
+        /// Only this directory
+        #[arg(long)]
+        here: bool,
+        /// Only the last N days: 0d is today, 7d a week (default: all time)
+        #[arg(long)]
+        since: Option<String>,
+        /// Machine-readable output
+        #[arg(long, conflicts_with = "format")]
+        json: bool,
+        /// Template: {calls} {cache_hits} {hit_rate} {input_tokens} {output_tokens} {tokens}
+        #[arg(long)]
+        format: Option<String>,
     },
     /// Back up, restore or rotate the key that protects the history
     Key {
@@ -155,6 +171,12 @@ fn run() -> Result<()> {
     match &cli.command {
         Some(Cmd::Config) => show_config(&cfg),
         Some(Cmd::Key { action }) => key_cmd(action, keychain),
+        Some(Cmd::Stats {
+            here,
+            since,
+            json,
+            format,
+        }) => stats::show(*here, since.as_deref(), *json, format.as_deref()),
         Some(Cmd::History {
             filter,
             action: None,
