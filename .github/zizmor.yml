@@ -1,0 +1,13 @@
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # GitHub's and our own actions on tags; third-party SHA-pinned.
+        "actions/*": ref-pin
+        "drumandbytes/*": ref-pin
+        "*": hash-pin
+
+  dangerous-triggers:
+    ignore:
+      # Needed for Dependabot merges; never checks out PR code.
+      - auto-merge.yml

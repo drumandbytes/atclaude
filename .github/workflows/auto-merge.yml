@@ -1,0 +1,29 @@
+name: Auto merge
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+jobs:
+  auto-merge:
+    # The org default token is read-only.
+    permissions:
+      contents: write
+      pull-requests: write
+    # Not gated on workflow_run.event: Dependabot branches run CI as 'push'.
+    # The reusable workflow's author check is the real gate.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.actor.login == 'dependabot[bot]' ||
+       github.event.workflow_run.actor.login == 'dnb-robot[bot]')
+    uses: drumandbytes/reusable-actions/.github/workflows/auto-merge.yml@v1
+    with:
+      # release-please's own PR; patch bumps auto-merge, minor/major don't.
+      patch-only-authors: '["dnb-robot[bot]"]'
+      # A GITHUB_TOKEN merge triggers no workflows, so the release would never
+      # be cut (reusable-actions#16).
+      use-app-token-for-merge: true
+    secrets:
+      DNB_ROBOT_CLIENT_ID: ${{ secrets.DNB_ROBOT_CLIENT_ID }}
+      AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}

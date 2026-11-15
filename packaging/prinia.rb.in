@@ -1,0 +1,46 @@
+# Template for the formula that release.yml writes to drumandbytes/homebrew-tap.
+class Prinia < Formula
+  desc "Call AI models from the command line like any other filter, with encrypted history"
+  homepage "https://github.com/drumandbytes/prinia"
+  version "@VERSION@"
+  license "MIT"
+
+  on_macos do
+    on_arm do
+      url "https://github.com/drumandbytes/prinia/releases/download/@TAG@/prinia_darwin_arm64.tar.gz"
+      sha256 "@SHA_DARWIN_ARM64@"
+    end
+    on_intel do
+      url "https://github.com/drumandbytes/prinia/releases/download/@TAG@/prinia_darwin_amd64.tar.gz"
+      sha256 "@SHA_DARWIN_AMD64@"
+    end
+  end
+
+  on_linux do
+    on_arm do
+      url "https://github.com/drumandbytes/prinia/releases/download/@TAG@/prinia_linux_arm64.tar.gz"
+      sha256 "@SHA_LINUX_ARM64@"
+    end
+    on_intel do
+      url "https://github.com/drumandbytes/prinia/releases/download/@TAG@/prinia_linux_amd64.tar.gz"
+      sha256 "@SHA_LINUX_AMD64@"
+    end
+  end
+
+  def install
+    bin.install "prinia"
+  end
+
+  def caveats
+    <<~EOS
+      Set an API key to get started, for example:
+        export ANTHROPIC_API_KEY=...
+      Then try: prinia "hello"
+      Docs: https://github.com/drumandbytes/prinia#readme
+    EOS
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/prinia --version")
+  end
+end

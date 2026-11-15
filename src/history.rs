@@ -1,9 +1,7 @@
 use crate::config::Config;
-use crate::db::{Database, Filter, NewTurn, Turn};
-use crate::llm;
-use anyhow::{anyhow, bail, Result};
+use crate::store::{Filter, Store, Turn, dir_hash};
+use anyhow::{Result, anyhow, bail};
 use clap::Args;
-use std::collections::BTreeMap;
 use std::io::{BufRead, IsTerminal, Write};
 use std::process::{Command, Stdio};
 
@@ -15,113 +13,90 @@ pub struct FilterArgs {
     /// Only turns older than this
     #[arg(long)]
     pub older: Option<String>,
-    /// Only this session
-    #[arg(long = "in", value_name = "SESSION")]
-    pub in_session: Option<String>,
-    /// Only this repository (directory name of the git root)
+    /// Only turns from the current directory
     #[arg(long)]
-    pub repo: Option<String>,
+    pub here: bool,
 }
 
 impl FilterArgs {
     pub fn filter(&self) -> Result<Filter> {
         Ok(Filter {
-            since: self.since.as_deref().map(since_modifier).transpose()?,
-            older: self.older.as_deref().map(since_modifier).transpose()?,
-            session: self.in_session.clone(),
-            repo: self.repo.clone(),
+            since: self.since.as_deref().map(age_secs).transpose()?,
+            older: self.older.as_deref().map(age_secs).transpose()?,
+            dir: if self.here {
+                Some(dir_hash(&std::env::current_dir()?))
+            } else {
+                None
+            },
         })
     }
 
     pub fn any(&self) -> bool {
-        self.since.is_some() || self.older.is_some() || self.in_session.is_some() || self.repo.is_some()
+        self.since.is_some() || self.older.is_some() || self.here
     }
 }
 
-pub fn since_modifier(s: &str) -> Result<String> {
+/// "12h", "3d", "2w", "1m" (30 days) as seconds.
+pub fn age_secs(s: &str) -> Result<i64> {
     let bad = || anyhow!("bad age {s:?}; use e.g. 12h, 3d, 2w, 1m");
     if s.len() < 2 || !s.is_char_boundary(s.len() - 1) {
         return Err(bad());
     }
     let (n, unit) = s.split_at(s.len() - 1);
-    let n: u32 = n.parse().map_err(|_| bad())?;
-    Ok(match unit {
-        "h" => format!("-{n} hours"),
-        "d" => format!("-{n} days"),
-        "w" => format!("-{} days", n * 7),
-        "m" => format!("-{n} months"),
+    let n: i64 = n.parse().map_err(|_| bad())?;
+    Ok(n * match unit {
+        "h" => 3600,
+        "d" => 86_400,
+        "w" => 7 * 86_400,
+        "m" => 30 * 86_400,
         _ => return Err(bad()),
     })
 }
 
 pub fn oneline(s: &str, max: usize) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(max).collect()
+    s.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(max)
+        .collect()
 }
 
-fn helper_model(cfg: &Config) -> String {
-    cfg.str("helper_model").unwrap_or_else(|| "haiku".into())
-}
-
-/// One line per turn for a model to read, newest turns first until the budget is spent,
-/// returned oldest first with the turn id. The bool says whether older turns were cut.
-fn index(turns: &[Turn], cfg: &Config) -> (Vec<(i64, String)>, bool) {
-    let (pc, rc) = (cfg.num("search_prompt_chars").unwrap_or(200), cfg.num("search_response_chars").unwrap_or(400));
-    let budget = cfg.num("search_budget").unwrap_or(300_000);
-    let mut out = Vec::new();
-    let mut used = 0;
-    let mut cut = false;
-    for t in turns {
-        let mut meta = vec![t.session.clone().unwrap_or_else(|| "-".into())];
-        if let Some(r) = &t.repo {
-            meta.push(match &t.branch {
-                Some(b) => format!("{r}@{b}"),
-                None => r.clone(),
-            });
-        }
-        meta.push(if t.kind == "summary" { "summary".into() } else { t.mode.clone() });
-        let line = format!("#{} {} [{}] Q: {} | A: {}", t.id, t.ts, meta.join(" "), oneline(&t.prompt, pc), oneline(&t.response, rc));
-        used += line.chars().count();
-        if used > budget {
-            cut = true;
-            break;
-        }
-        out.push((t.id, line));
+pub fn label(t: &Turn) -> String {
+    if t.content.instruction.is_empty() {
+        format!("(stdin) {}", oneline(&t.content.payload, 100))
+    } else {
+        oneline(&t.content.instruction, 120)
     }
-    out.reverse();
-    (out, cut)
 }
 
-pub fn search(db: &Database, cfg: &Config, question: &str, f: &FilterArgs, model: &str) -> Result<()> {
-    let turns = db.query(&f.filter()?, 5000)?;
-    let (lines, cut) = index(&turns, cfg);
-    if lines.is_empty() {
-        bail!("no history in range");
-    }
-    if cut {
-        eprintln!("[atclaude] history too large for one search, using the most recent {} turns (narrow with --since/--in/--repo)", lines.len());
-    }
-    let body = lines.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("\n");
-    let out = llm::complete(
-        Some(model),
-        Some("You answer questions about the user's past command-line assistant history. Use only the history entries. Cite entry ids like #12. If the history does not contain the answer, say so. Be brief."),
-        llm::HELPER_ARGS,
-        &format!("Now: {}\n\nHistory:\n{body}\n\nQuestion: {question}", db.now()?),
-    )?;
-    println!("{}", out.trim_end());
-    Ok(())
-}
-
-pub fn list(db: &Database, f: &FilterArgs) -> Result<()> {
-    let lines: Vec<String> = db
-        .query(&f.filter()?, 2000)?
+pub fn list(store: &Store, f: &FilterArgs) -> Result<()> {
+    let lines: Vec<String> = store
+        .list(&f.filter()?, 2000)?
         .iter()
-        .map(|t| format!("{}\t{}\t{}\t{}\t{}", t.id, t.ts, t.session.as_deref().unwrap_or("-"), t.repo.as_deref().unwrap_or("-"), oneline(&t.prompt, 120)))
+        .map(|t| {
+            format!(
+                "{}\t{}\t{}\t{}",
+                t.id,
+                t.when,
+                t.content.repo.as_deref().unwrap_or("-"),
+                label(t)
+            )
+        })
         .collect();
 
     let fzf = if std::io::stdout().is_terminal() {
         let exe = std::env::current_exe()?;
         Command::new("fzf")
-            .args(["--delimiter", "\t", "--with-nth", "2..", "--preview-window", "right:60%:wrap", "--preview"])
+            .args([
+                "--delimiter",
+                "\t",
+                "--with-nth",
+                "2..",
+                "--preview-window",
+                "right:60%:wrap",
+                "--preview",
+            ])
             .arg(if cfg!(windows) {
                 format!("\"{}\" history show {{1}}", exe.display())
             } else {
@@ -141,32 +116,46 @@ pub fn list(db: &Database, f: &FilterArgs) -> Result<()> {
         return Ok(());
     };
     // fzf may exit early (esc); a broken pipe on write is fine
-    let _ = fzf.stdin.take().expect("piped").write_all(lines.join("\n").as_bytes());
+    let _ = fzf
+        .stdin
+        .take()
+        .expect("piped")
+        .write_all(lines.join("\n").as_bytes());
     let out = fzf.wait_with_output()?;
     let picked = String::from_utf8_lossy(&out.stdout);
-    if let Some(id) = picked.split('\t').next().and_then(|s| s.trim().parse::<i64>().ok()) {
-        show(db, id)?;
+    if let Some(id) = picked
+        .split('\t')
+        .next()
+        .and_then(|s| s.trim().parse::<i64>().ok())
+    {
+        show(store, id)?;
     }
     Ok(())
 }
 
-pub fn show(db: &Database, id: i64) -> Result<()> {
-    let Some(t) = db.get(id)? else { bail!("no turn #{id}") };
-    let place = match (&t.repo, &t.branch) {
+pub fn show(store: &Store, id: i64) -> Result<()> {
+    let Some(t) = store.get(id)? else {
+        bail!("no turn #{id}")
+    };
+    let c = &t.content;
+    let place = match (&c.repo, &c.branch) {
         (Some(r), Some(b)) => format!(" {r}@{b}"),
         (Some(r), None) => format!(" {r}"),
         _ => String::new(),
     };
-    println!("#{} {} [{}]{place} {} ({}, {}, {})", t.id, t.ts, t.session.as_deref().unwrap_or("-"), t.cwd, t.model, t.mode, t.kind);
-    println!("\n> {}", t.prompt);
-    if !t.payload.is_empty() {
-        println!("\n--- stdin ({} bytes) ---\n{}", t.payload.len(), t.payload);
+    println!(
+        "#{} {}{place} {} ({} {}, {}, {} in / {} out tokens)",
+        t.id, t.when, c.cwd, t.provider, t.model, t.mode, t.input_tokens, t.output_tokens
+    );
+    println!("\n> {}", c.instruction);
+    if !c.payload.is_empty() {
+        println!("\n--- stdin ({} bytes) ---\n{}", c.payload.len(), c.payload);
     }
-    println!("\n{}", t.response);
+    println!("\n{}", c.response);
     Ok(())
 }
 
-fn confirm(question: &str, yes: bool) -> Result<bool> {
+pub fn confirm(question: &str, yes: bool) -> Result<bool> {
     if yes {
         return Ok(true);
     }
@@ -179,160 +168,142 @@ fn confirm(question: &str, yes: bool) -> Result<bool> {
     Ok(line.trim().eq_ignore_ascii_case("y"))
 }
 
-fn preview(turns: &[&Turn]) {
-    for t in turns.iter().take(8) {
-        println!("  #{} {} [{}] {}", t.id, t.ts, t.session.as_deref().unwrap_or("-"), oneline(&t.prompt, 80));
-    }
-    if turns.len() > 8 {
-        println!("  ... and {} more", turns.len() - 8);
-    }
-}
-
-fn delete_after_confirm(db: &Database, turns: &[&Turn], yes: bool) -> Result<()> {
+/// Delete by id, or by filter (a filter is required so a bare `rm` can't wipe everything).
+pub fn rm(store: &Store, ids: &[i64], f: &FilterArgs, yes: bool) -> Result<()> {
+    let turns: Vec<Turn> = if !ids.is_empty() {
+        ids.iter()
+            .filter_map(|i| store.get(*i).transpose())
+            .collect::<Result<_>>()?
+    } else if f.any() {
+        store.list(&f.filter()?, 1_000_000)?
+    } else {
+        bail!("give turn ids or a filter (--older 90d, --since 1d, --here)");
+    };
     if turns.is_empty() {
         println!("nothing matches");
         return Ok(());
     }
-    preview(turns);
-    if !confirm(&format!("Delete {} turn(s)? This cannot be undone.", turns.len()), yes)? {
+    for t in turns.iter().take(8) {
+        println!("  #{} {} {}", t.id, t.when, label(t));
+    }
+    if turns.len() > 8 {
+        println!("  ... and {} more", turns.len() - 8);
+    }
+    if !confirm(
+        &format!("Delete {} turn(s)? This cannot be undone.", turns.len()),
+        yes,
+    )? {
         println!("aborted");
         return Ok(());
     }
-    println!("deleted {}", db.delete_ids(&turns.iter().map(|t| t.id).collect::<Vec<_>>())?);
+    println!(
+        "deleted {}",
+        store.delete(&turns.iter().map(|t| t.id).collect::<Vec<_>>())?
+    );
     Ok(())
 }
 
-/// Delete by id, or by filter (a filter is required so a bare `rm` can't wipe everything).
-pub fn rm(db: &Database, ids: &[i64], f: &FilterArgs, yes: bool) -> Result<()> {
-    let turns: Vec<Turn> = if !ids.is_empty() {
-        ids.iter().filter_map(|i| db.get(*i).transpose()).collect::<Result<_>>()?
-    } else if f.any() {
-        db.query(&f.filter()?, 1_000_000)?
-    } else {
-        bail!("give turn ids or a filter (--older 90d, --in SESSION, --repo NAME, --since ...)");
+/// "500m", "2g", "100k" or plain bytes.
+pub fn size_bytes(s: &str) -> Result<u64> {
+    let bad = || anyhow!("bad size {s:?}; use e.g. 100k, 500m, 2g");
+    let t = s.trim().to_lowercase();
+    let (n, mult) = match t.chars().last() {
+        Some('k') => (&t[..t.len() - 1], 1u64 << 10),
+        Some('m') => (&t[..t.len() - 1], 1 << 20),
+        Some('g') => (&t[..t.len() - 1], 1 << 30),
+        _ => (t.as_str(), 1),
     };
-    delete_after_confirm(db, &turns.iter().collect::<Vec<_>>(), yes)
+    n.trim().parse::<u64>().map(|n| n * mult).map_err(|_| bad())
 }
 
-/// Ask the helper model which turns to delete. It only sees the index; you confirm the list.
-pub fn clean(db: &Database, cfg: &Config, instruction: &str, f: &FilterArgs, yes: bool) -> Result<()> {
-    let turns = db.query(&f.filter()?, 5000)?;
-    let (lines, cut) = index(&turns, cfg);
-    if lines.is_empty() {
-        bail!("no history in range");
-    }
-    if cut {
-        eprintln!("[atclaude] only the most recent {} turns fit; narrow with --older/--in/--repo to reach older ones", lines.len());
-    }
-    let body = lines.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("\n");
-    let out = llm::complete(
-        Some(&helper_model(cfg)),
-        Some("Select history entries to delete according to the instruction. Output ONLY a JSON array of integer entry ids from the list. Be conservative: when unsure, leave an entry out. Output [] if nothing matches."),
-        llm::HELPER_ARGS,
-        &format!("Instruction: {instruction}\n\nHistory:\n{body}"),
-    )?;
-    let (a, b) = (out.find('['), out.rfind(']'));
-    let picked: Vec<i64> = match (a, b) {
-        (Some(a), Some(b)) if a < b => serde_json::from_str(&out[a..=b]).map_err(|e| anyhow!("model returned unusable ids: {e}"))?,
-        _ => bail!("model returned no id list"),
-    };
-    let shown: Vec<i64> = lines.iter().map(|(id, _)| *id).collect();
-    let targets: Vec<&Turn> = turns.iter().filter(|t| picked.contains(&t.id) && shown.contains(&t.id)).collect();
-    delete_after_confirm(db, &targets, yes)
+const DEFAULT_MAX_SIZE: &str = "500m";
+
+/// Turns that the `max_size` / `max_age` settings say to drop.
+fn expired(store: &Store, cfg: &Config) -> Result<Vec<i64>> {
+    let max = size_bytes(&cfg.str("max_size").unwrap_or(DEFAULT_MAX_SIZE.into()))?;
+    let age = cfg.str("max_age").map(|a| age_secs(&a)).transpose()?;
+    store.over_limits(max, age)
 }
 
-const COMPACT_CHUNK: usize = 60_000; // chars per summarization call
-const COMPACT_RESPONSE: usize = 1500; // chars of each response the summarizer sees
-
-struct Digest<'a> {
-    session: Option<String>,
-    turns: Vec<&'a Turn>,
-    text: String,
-}
-
-/// Replace old turns with one model-written digest per session chunk. Summaries are shown
-/// before anything is deleted; piped payloads of compacted turns are dropped.
-// ponytail: chunks are consecutive turns of one session capped by size; no cross-chunk merge.
-pub fn compact(db: &Database, cfg: &Config, f: &FilterArgs, yes: bool) -> Result<()> {
-    if !f.any() {
-        bail!("give a filter, e.g. --older 90d (optionally --in SESSION / --repo NAME)");
-    }
-    let mut turns = db.query(&f.filter()?, 1_000_000)?;
-    turns.retain(|t| t.kind == "turn");
-    turns.reverse(); // oldest first
-
-    let mut by_session: BTreeMap<Option<String>, Vec<&Turn>> = BTreeMap::new();
-    for t in &turns {
-        by_session.entry(t.session.clone()).or_default().push(t);
-    }
-    let mut chunks: Vec<(Option<String>, Vec<&Turn>)> = Vec::new();
-    for (session, ts) in by_session {
-        let (mut cur, mut size) = (Vec::new(), 0);
-        for t in ts {
-            size += t.prompt.len() + t.response.len().min(COMPACT_RESPONSE);
-            cur.push(t);
-            if size > COMPACT_CHUNK {
-                chunks.push((session.clone(), std::mem::take(&mut cur)));
-                size = 0;
-            }
+/// Runs after each recorded call; a few milliseconds while the history is within its limits.
+// NOTE: inline, not a background process; move it out if a very large history makes this slow.
+pub fn enforce_limits(store: &Store, cfg: &Config) {
+    match expired(store, cfg).and_then(|ids| {
+        if ids.is_empty() {
+            Ok(0)
+        } else {
+            store.delete(&ids)
         }
-        chunks.push((session.clone(), cur));
+    }) {
+        Ok(0) => {}
+        Ok(n) => eprintln!("[prinia] history over its limit: removed the {n} oldest turn(s)"),
+        Err(e) => eprintln!("[prinia] history limits not applied: {e:#}"),
     }
-    chunks.retain(|(_, c)| c.len() >= 2);
-    if chunks.is_empty() {
-        println!("nothing to compact (needs at least 2 turns in a session)");
-        return Ok(());
-    }
+}
 
-    let model = helper_model(cfg);
-    let mut digests = Vec::new();
-    for (session, ts) in chunks {
-        let body = ts
-            .iter()
-            .map(|t| format!("[#{} {}] Q: {}\nA: {}", t.id, t.ts, t.prompt, t.response.chars().take(COMPACT_RESPONSE).collect::<String>()))
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        let text = llm::complete(
-            Some(&model),
-            Some("Condense these assistant turns into a compact digest of at most 25 lines. Keep facts, decisions, commands, file paths, names, errors and outcomes; drop pleasantries and repetition. Output only the digest."),
-            llm::HELPER_ARGS,
-            &body,
-        )?;
-        digests.push(Digest { session, turns: ts, text: text.trim().to_string() });
+/// `history clean`: apply the limits now and shrink the file.
+pub fn clean(store: &Store, cfg: &Config, yes: bool) -> Result<()> {
+    let ids = expired(store, cfg)?;
+    println!(
+        "history holds {} of content; limits: max_size {}, max_age {}",
+        human(store.content_bytes()?),
+        cfg.str("max_size").unwrap_or(DEFAULT_MAX_SIZE.into()),
+        cfg.str("max_age").unwrap_or("none".into())
+    );
+    if !ids.is_empty()
+        && confirm(
+            &format!(
+                "Delete the {} oldest turn(s) to fit? This cannot be undone.",
+                ids.len()
+            ),
+            yes,
+        )?
+    {
+        println!("deleted {}", store.delete(&ids)?);
     }
+    store.compact()?;
+    println!("now {}", human(store.content_bytes()?));
+    Ok(())
+}
 
-    for d in &digests {
-        println!("--- {} turns of [{}] #{}..#{} ---\n{}\n", d.turns.len(), d.session.as_deref().unwrap_or("-"), d.turns[0].id, d.turns[d.turns.len() - 1].id, d.text);
+fn human(n: u64) -> String {
+    match n {
+        n if n >= 1 << 30 => format!("{:.1} GB", n as f64 / (1u64 << 30) as f64),
+        n if n >= 1 << 20 => format!("{:.1} MB", n as f64 / (1u64 << 20) as f64),
+        n => format!("{:.1} KB", n as f64 / 1024.0),
     }
-    let total: usize = digests.iter().map(|d| d.turns.len()).sum();
-    if !confirm(&format!("Replace {total} turn(s) with {} summary(ies)? The originals are deleted.", digests.len()), yes)? {
-        println!("aborted");
-        return Ok(());
+}
+
+/// Turns containing every word (any case), newest first, each with the first matching line.
+pub fn search(store: &Store, f: &FilterArgs, words: &[String]) -> Result<()> {
+    let terms: Vec<String> = words.iter().map(|w| w.to_lowercase()).collect();
+    // NOTE: decrypts the whole filtered history per search; add an index if that gets slow.
+    let mut shown = 0;
+    for t in store.list(&f.filter()?, 1_000_000)? {
+        let c = &t.content;
+        let all = format!("{}\n{}\n{}", c.instruction, c.payload, c.response).to_lowercase();
+        if !terms.iter().all(|w| all.contains(w)) {
+            continue;
+        }
+        println!(
+            "{}\t{}\t{}\t{}",
+            t.id,
+            t.when,
+            c.repo.as_deref().unwrap_or("-"),
+            label(&t)
+        );
+        let hit = [&c.instruction, &c.payload, &c.response]
+            .into_iter()
+            .flat_map(|s| s.lines())
+            .find(|l| l.to_lowercase().contains(&terms[0]));
+        if let Some(l) = hit {
+            println!("\t\t{}", oneline(l, 120));
+        }
+        shown += 1;
     }
-    for d in &digests {
-        let (first, last) = (d.turns[0], d.turns[d.turns.len() - 1]);
-        let prompt = format!("(summary of {} turns, #{}..#{})", d.turns.len(), first.id, last.id);
-        let ids: Vec<i64> = d.turns.iter().map(|t| t.id).collect();
-        db.replace(
-            &NewTurn {
-                session: d.session.as_deref(),
-                kind: "summary",
-                cwd: "",
-                repo: None,
-                branch: None,
-                mode: "compact",
-                tty: None,
-                model: &model,
-                prompt: &prompt,
-                payload: "",
-                response: &d.text,
-                duration_ms: 0,
-                at: Some(&last.ts),
-            },
-            &ids,
-        )?;
+    if shown == 0 {
+        println!("nothing matches");
     }
-    println!("compacted {total} turn(s) into {} summary(ies)", digests.len());
     Ok(())
 }
 
@@ -342,8 +313,11 @@ mod tests {
 
     #[test]
     fn ages() {
-        assert_eq!(since_modifier("2w").unwrap(), "-14 days");
-        assert_eq!(since_modifier("12h").unwrap(), "-12 hours");
-        assert!(since_modifier("").is_err() && since_modifier("d").is_err() && since_modifier("3x").is_err());
+        assert_eq!(age_secs("2w").unwrap(), 14 * 86_400);
+        assert_eq!(age_secs("12h").unwrap(), 43_200);
+        assert_eq!(size_bytes("2k").unwrap(), 2048);
+        assert_eq!(size_bytes("1G").unwrap(), 1 << 30);
+        assert!(size_bytes("x").is_err() && size_bytes("").is_err());
+        assert!(age_secs("").is_err() && age_secs("d").is_err() && age_secs("3x").is_err());
     }
 }
