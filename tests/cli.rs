@@ -875,3 +875,24 @@ fn answers_cut_off_by_the_limit_are_not_served_from_the_cache() {
     // it is still in the history
     assert_eq!(env.run(&["history"], "", &[]).0.lines().count(), 2);
 }
+
+#[test]
+fn a_server_that_is_not_running_gets_a_hint() {
+    let mock = Mock::start("", 200);
+    let env = Env::new("down", &mock);
+    let port = {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        l.local_addr().unwrap().port()
+    };
+    std::fs::write(
+        env.dir.join("cfg/config.toml"),
+        format!("[providers.down]\ntype = \"openai\"\nbase_url = \"http://127.0.0.1:{port}/v1\"\nmodel = \"m\"\n"),
+    )
+    .unwrap();
+    let (out, err, code) = env.run(&["-p", "down", "hi"], "", &[]);
+    assert!(out.is_empty() && code == 1, "{out}{err}");
+    assert!(
+        err.contains("cannot reach") && err.contains("Is the server running?"),
+        "{err}"
+    );
+}
