@@ -59,6 +59,21 @@ The context comes from your own history, not from a provider's session, so it wo
 
 A call with context is cached separately from the same question without it.
 
+## Checking the answer
+
+Models sometimes return something a script cannot use. Two flags make a call refuse bad answers:
+
+```bash
+journalctl -u app | prinia --json "list the distinct errors as a JSON array" | jq -r '.[]'
+prinia --check 'python3 -m py_compile /dev/stdin' "write a python function that parses ISO dates" > dates.py
+```
+
+`--json` requires the answer to be one valid JSON value (and tells the model so). `--check COMMAND` requires the command to accept the answer on stdin and exit 0, so any validator works: `jq -e .`, `xmllint --noout -`, a linter. If the answer fails, `prinia` asks again, up to `check_retries` more times (default 2). If every attempt fails it prints nothing, exits non-zero and saves nothing, so a bad answer never reaches the next command in your pipeline or the cache. Checking waits for the complete answer, so a terminal does not stream while a check is on. Failed attempts are not counted in `stats`.
+
+A cached answer that fails `--check` is ignored and replaced by the fresh one, which also repairs an entry that was cached before you started checking. `--json` adds an instruction to the prompt, so its answers are cached separately.
+
+Answers cut off at the output limit are kept in the history but are never reused as a cache hit.
+
 ## Recording
 
 Every successful call is saved to the [history](history.md) after its output has been written. `--no-record` skips it for one call; `record = false` (or `PRINIA_RECORD=0`) turns it off for a directory or everywhere, and `--record` overrides that for one call.
@@ -76,6 +91,8 @@ Every successful call is saved to the [history](history.md) after its output has
 | `-m`, `--model NAME` | Exact model |
 | `-c`, `--context` | Include earlier turns from this directory |
 | `--no-context` | Send no earlier turns, even if `context` is set |
+| `--json` | Require the answer to be valid JSON; retry if not |
+| `--check COMMAND` | Require the command to accept the answer on stdin; retry if not |
 | `--no-cache` | Skip the history cache |
 | `--record` / `--no-record` | Save or don't save this call |
 

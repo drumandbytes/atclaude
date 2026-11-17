@@ -34,6 +34,7 @@ pub const KEYS: &[(&str, Ty)] = &[
     ("excerpt_prompt", Ty::Num),
     ("excerpt_reply", Ty::Num),
     ("agent_steps", Ty::Num),
+    ("check_retries", Ty::Num),
     ("keychain", Ty::Bool),
     ("prompt_pipe", Ty::Str),
     ("prompt_interactive", Ty::Str),
