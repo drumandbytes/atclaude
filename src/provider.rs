@@ -233,9 +233,7 @@ impl Provider {
                     }
                 }
             }
-            let mut resp = r
-                .send_json(&body)
-                .with_context(|| format!("cannot reach {url}"))?;
+            let mut resp = r.send_json(&body).with_context(|| unreachable(&url))?;
             let status = resp.status().as_u16();
             if status == 200 {
                 break resp;
@@ -393,6 +391,22 @@ fn openai_body(req: &Request) -> Value {
     body
 }
 
+/// Why a request could not be sent; a local server that is not running is the usual cause.
+fn unreachable(url: &str) -> String {
+    if !["//localhost", "//127.0.0.1", "//[::1]"]
+        .iter()
+        .any(|h| url.contains(h))
+    {
+        return format!("cannot reach {url}");
+    }
+    let ollama = if url.contains(":11434") {
+        " For Ollama: `brew services start ollama` or `ollama serve`."
+    } else {
+        ""
+    };
+    format!("cannot reach {url}. Is the server running?{ollama}")
+}
+
 fn anthropic_event(v: &Value, reply: &mut Reply) -> Result<Option<String>> {
     match v["type"].as_str() {
         Some("message_start") => {
@@ -485,4 +499,21 @@ fn openai_event(v: &Value, reply: &mut Reply) -> Result<Option<String>> {
         p.3.push_str(tc["function"]["arguments"].as_str().unwrap_or_default());
     }
     Ok(choice["delta"]["content"].as_str().map(str::to_owned))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hints_only_for_local_servers() {
+        assert_eq!(
+            unreachable("https://api.x.com/v1/chat"),
+            "cannot reach https://api.x.com/v1/chat"
+        );
+        assert!(unreachable("http://localhost:1234/v1/chat").ends_with("Is the server running?"));
+        assert!(
+            unreachable("http://127.0.0.1:11434/v1/chat").contains("brew services start ollama")
+        );
+    }
 }
