@@ -9,6 +9,7 @@ use std::time::Instant;
 use store::{Content, Meta, Store};
 
 mod agent;
+mod check;
 mod config;
 mod context;
 mod curate;
@@ -67,6 +68,14 @@ struct Cli {
     /// With --agent: allow running shell commands
     #[arg(long, requires = "agent")]
     run: bool,
+
+    /// Require the answer to be valid JSON; ask again if it is not
+    #[arg(long, conflicts_with = "agent")]
+    json: bool,
+
+    /// Require this command to accept the answer on stdin (exit 0); ask again if it does not
+    #[arg(long, value_name = "COMMAND", conflicts_with = "agent")]
+    check: Option<String>,
 
     /// Call the model even if an identical call is in the history
     #[arg(long)]
@@ -255,6 +264,13 @@ fn ask(cli: &Cli, cfg: &Config, keychain: bool) -> Result<()> {
             .unwrap_or_else(|| PROMPT_INTERACTIVE.into())
     };
 
+    let validate = cli.json || cli.check.is_some();
+    let system = if cli.json {
+        format!("{system} Respond with a single valid JSON value and nothing else.")
+    } else {
+        system
+    };
+
     let provider = Provider::resolve(cfg, cli.provider.as_deref())?;
     let size = combine(&instruction, &payload).chars().count() as u64;
     let tier = if cli.fast {
@@ -333,7 +349,10 @@ fn ask(cli: &Cli, cfg: &Config, keychain: bool) -> Result<()> {
 
     if use_cache && let Some(s) = &store {
         let ttl = history::age_secs(&cfg.str("cache_ttl").unwrap_or_else(|| "7d".into()))?;
-        if let Some(hit) = s.cached(&cache_key, ttl, &dir)? {
+        // a stored answer that fails the check is skipped, and the fresh one replaces it
+        if let Some(hit) = s.cached(&cache_key, ttl, &dir)?
+            && (!validate || check::passes(&hit, cli.json, cli.check.as_deref()))
+        {
             let _ = std::io::stdout().write_all(hit.as_bytes());
             return Ok(());
         }
@@ -353,48 +372,66 @@ fn ask(cli: &Cli, cfg: &Config, keychain: bool) -> Result<()> {
     // A terminal gets the answer as it arrives; a pipe gets it whole, so a wrapping code fence
     // can be stripped. NOTE: filter the fence while streaming if piped latency ever matters.
     let mut show = |piece: &str| {
-        if !piped {
+        if !piped && !validate {
             print!("{piece}");
             let _ = std::io::stdout().flush();
         }
     };
-    let reply = if cli.agent {
-        agent::run(
-            &agent::Opts {
-                cfg,
-                provider: &provider,
-                model: &model,
-                effort: effort.as_deref(),
-                max_tokens,
-                user: &user,
-                write: cli.write,
-                run: cli.run,
-            },
-            &mut show,
-        )?
+    // Checks need the whole answer, so nothing is printed (or saved) until it passes.
+    let attempts = if validate {
+        cfg.num("check_retries").unwrap_or(2) + 1
     } else {
-        provider.complete(&req, &mut show)?
+        1
     };
-    if reply.stop == "refusal" {
-        bail!("the model declined this request");
-    }
-    let mut text = if piped {
-        strip_fence(&reply.text)
-    } else {
-        reply.text.clone()
+    let mut tried = 0;
+    let (reply, mut text) = loop {
+        tried += 1;
+        let reply = if cli.agent {
+            agent::run(
+                &agent::Opts {
+                    cfg,
+                    provider: &provider,
+                    model: &model,
+                    effort: effort.as_deref(),
+                    max_tokens,
+                    user: &user,
+                    write: cli.write,
+                    run: cli.run,
+                },
+                &mut show,
+            )?
+        } else {
+            provider.complete(&req, &mut show)?
+        };
+        if reply.stop == "refusal" {
+            bail!("the model declined this request");
+        }
+        let text = if piped || validate {
+            strip_fence(&reply.text)
+        } else {
+            reply.text.clone()
+        };
+        if !validate || check::passes(&text, cli.json, cli.check.as_deref()) {
+            break (reply, text);
+        }
+        if tried >= attempts {
+            bail!("the answer failed the check {tried} time(s); nothing was printed or saved");
+        }
+        eprintln!("[prinia] the answer failed the check; asking again ({tried}/{attempts})");
     };
     if !text.ends_with('\n') {
         text.push('\n');
-        if !piped {
+        if !piped && !validate {
             println!();
         }
     }
-    if piped {
+    if piped || validate {
         // a closed pipe (`| head`) is not an error
         let _ = std::io::stdout().write_all(text.as_bytes());
     }
     let _ = std::io::stdout().flush();
-    if matches!(reply.stop.as_str(), "max_tokens" | "length") {
+    let cut_off = matches!(reply.stop.as_str(), "max_tokens" | "length");
+    if cut_off {
         eprintln!("[prinia] the answer was cut off at the output limit (raise `max_tokens`)");
     }
 
@@ -414,7 +451,8 @@ fn ask(cli: &Cli, cfg: &Config, keychain: bool) -> Result<()> {
             input_tokens: reply.input_tokens,
             output_tokens: reply.output_tokens,
             duration_ms: started.elapsed().as_millis() as u64,
-            cache_key: &cache_key,
+            // an answer cut off at the limit stays in the history but never answers a later call
+            cache_key: if cut_off { "" } else { &cache_key },
         };
         let content = Content {
             instruction,

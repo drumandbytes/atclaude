@@ -69,6 +69,7 @@ API keys are read from the environment and are never written to the history or t
 | `deep_over` | none | Calls with more characters than this use the deep tier unless a tier or model is given |
 | `history_scan` | `200` | Newest turns that `history ask` and `history agent` read |
 | `excerpt_prompt` / `excerpt_reply` | `200` / `400` | Characters of each prompt and answer sent for `history ask` and `history agent` |
+| `check_retries` | `2` | Extra attempts when an answer fails `--json` or `--check` |
 | `keychain` | `false` | Keep the history key in the OS credential store instead of a file ([History](history.md#where-the-key-lives)) |
 | `prompt_pipe`, `prompt_interactive` | see below | The system prompts |
 

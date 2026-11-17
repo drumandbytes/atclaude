@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone)]
 enum Step {
     Text(&'static str),
+    /// text, ended by the output limit (OpenAI-style `length`)
+    Cut(&'static str),
     /// tool name, arguments as JSON text
     Call(&'static str, &'static str),
 }
@@ -92,7 +94,7 @@ impl Mock {
                     )
                 } else {
                     let shown = match &step {
-                        Some(Step::Text(t)) => *t,
+                        Some(Step::Text(t)) | Some(Step::Cut(t)) => *t,
                         _ => text,
                     };
                     let (a, b) = shown.split_at(shown.len() / 2);
@@ -113,11 +115,16 @@ impl Mock {
                     } else {
                         format!(
                             "data: {{\"model\":\"served-model\",\"choices\":[{{\"delta\":{{\"content\":{}}}}}]}}\n\n\
-                             data: {{\"model\":\"served-model\",\"choices\":[{{\"delta\":{{\"content\":{}}},\"finish_reason\":\"stop\"}}]}}\n\n\
+                             data: {{\"model\":\"served-model\",\"choices\":[{{\"delta\":{{\"content\":{}}},\"finish_reason\":\"{}\"}}]}}\n\n\
                              data: {{\"model\":\"served-model\",\"choices\":[],\"usage\":{{\"prompt_tokens\":5,\"completion_tokens\":3}}}}\n\n\
                              data: [DONE]\n\n",
                             q(a),
-                            q(b)
+                            q(b),
+                            if matches!(step, Some(Step::Cut(_))) {
+                                "length"
+                            } else {
+                                "stop"
+                            }
                         )
                     };
                     format!(
@@ -784,4 +791,87 @@ fn agent_stays_inside_the_working_directory_and_stops_after_its_step_limit() {
     let (_, err, code) = env.run(&["-a", "loop"], "", &[("PRINIA_AGENT_STEPS", "3")]);
     assert!(code != 0 && err.contains("stopped after 3 steps"), "{err}");
     assert_eq!(mock.hits(), 3);
+}
+
+#[test]
+fn json_and_check_retry_bad_answers_and_never_cache_them() {
+    // the first answer is not JSON, the second is
+    let mock = Mock::start_with(
+        "",
+        200,
+        vec![Step::Text("sure! here: [1"), Step::Text("[1, 2]")],
+    );
+    let env = Env::new("json", &mock);
+    let (out, err, code) = env.run(&["--json", "numbers"], "", &[]);
+    assert_eq!(
+        (out.as_str(), code, mock.hits()),
+        ("[1, 2]\n", 0, 2),
+        "{err}"
+    );
+    assert!(err.contains("failed the check"), "{err}");
+    // the good answer is what is cached
+    let (out, _, _) = env.run(&["--json", "numbers"], "", &[]);
+    assert_eq!((out.as_str(), mock.hits()), ("[1, 2]\n", 2));
+    // the JSON requirement is part of the request
+    assert!(
+        mock.nth(0)["system"]
+            .as_str()
+            .unwrap()
+            .contains("valid JSON")
+    );
+
+    // a stored answer that fails the check is skipped, and the new one replaces it
+    if cfg!(unix) {
+        let mock = Mock::start_with(
+            "",
+            200,
+            vec![Step::Text("bad answer"), Step::Text("good answer")],
+        );
+        let env = Env::new("heal", &mock);
+        env.run(&["q"], "", &[]); // cached without any check
+        let (out, _, _) = env.run(&["--check", "grep -q good", "q"], "", &[]);
+        assert_eq!((out.as_str(), mock.hits()), ("good answer\n", 2));
+        let (out, _, _) = env.run(&["--check", "grep -q good", "q"], "", &[]);
+        assert_eq!(
+            (out.as_str(), mock.hits()),
+            ("good answer\n", 2),
+            "the fresh answer is now cached"
+        );
+    }
+
+    // when every attempt fails: no output, an error, nothing saved
+    let mock = Mock::start("never json", 200);
+    let env = Env::new("json-fail", &mock);
+    let (out, err, code) = env.run(&["--json", "q"], "", &[("PRINIA_CHECK_RETRIES", "1")]);
+    assert!(
+        out.is_empty() && code != 0 && err.contains("failed the check 2 time"),
+        "{out}{err}"
+    );
+    assert_eq!(mock.hits(), 2);
+    assert!(env.run(&["history"], "", &[]).0.trim().is_empty());
+
+    // --check runs a command on the answer
+    if cfg!(unix) {
+        let mock = Mock::start_with("", 200, vec![Step::Text("nope"), Step::Text("all ok")]);
+        let env = Env::new("check", &mock);
+        let (out, _, code) = env.run(&["--check", "grep -q ok", "q"], "", &[]);
+        assert_eq!((out.as_str(), code, mock.hits()), ("all ok\n", 0, 2));
+    }
+}
+
+#[test]
+fn answers_cut_off_by_the_limit_are_not_served_from_the_cache() {
+    let mock = Mock::start_with("", 200, vec![Step::Cut("partial"), Step::Text("complete")]);
+    let env = Env::new("cut", &mock);
+    let (out, err, _) = env.run(&["-p", "local", "q"], "", &[]);
+    assert_eq!(out, "partial\n");
+    assert!(err.contains("cut off"), "{err}");
+    let (out, _, _) = env.run(&["-p", "local", "q"], "", &[]);
+    assert_eq!(
+        (out.as_str(), mock.hits()),
+        ("complete\n", 2),
+        "the cut-off answer was not cached"
+    );
+    // it is still in the history
+    assert_eq!(env.run(&["history"], "", &[]).0.lines().count(), 2);
 }
